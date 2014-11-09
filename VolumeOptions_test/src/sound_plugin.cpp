@@ -61,9 +61,9 @@ std::string wstring_to_utf8(const std::wstring& str)
 
 VolumeOptions::VolumeOptions(const float v, const std::string &sconfigPath)
 {
-	m_cpid = GetCurrentProcessId();
-	//m_paudio_monitor = std::make_shared<AudioMonitor>(m_cpid); // TODO, do Settings class
-	m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_cpid, 0.5f)); // TODO, do Settings class
+	vo::monitor_settings settings;
+	//m_paudio_monitor = std::make_shared<AudioMonitor>(m_cpid);
+	m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(settings));
 
 #ifdef VO_ENABLE_EVENTS
 	m_paudio_monitor->InitEvents();

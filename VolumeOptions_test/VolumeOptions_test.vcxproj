@@ -135,6 +135,7 @@
     <ClInclude Include="volumeoptions\sounds_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
+    <ClInclude Include="volumeoptions\vo_settings.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

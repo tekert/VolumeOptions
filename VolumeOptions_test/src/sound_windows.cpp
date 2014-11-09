@@ -843,18 +843,24 @@ HRESULT AudioSession::ApplyVolumeSettings()
 {
 	HRESULT hr = S_OK;
 
-	float current_vol_reduction = m_AudioMonitor.m_current_vol_reduction;
+	float current_vol_reduction = m_AudioMonitor.m_settings.vol_reduction;
 
 	// if AudioSession::is_volume_at_default is true, the session is intact, not changed, else not
 	// if AudioMonitor::auto_change_volume_flag is true, volume reduction is in place, else disabled.
 	if ((is_volume_at_default) && (m_AudioMonitor.auto_change_volume_flag))
 	{
-		ChangeVolume(m_default_volume * (1.0f - current_vol_reduction));
+		float set_vol;
+		if (m_AudioMonitor.m_settings.treat_vol_as_percentage)
+			set_vol = m_default_volume * (1.0f - current_vol_reduction);
+		else
+			set_vol = current_vol_reduction;
+
+		ChangeVolume(set_vol);
 		is_volume_at_default = false; // to signal the session that is NOT at default state.
 
 #ifdef _DEBUG
 		printf("AudioSession::ApplyVolumeSettings() Changed Volume of PID[%d] to %.2f\n",
-			getPID(), m_default_volume * (1.0f - current_vol_reduction));
+			getPID(), set_vol);
 #endif
 	}
 	else
@@ -957,10 +963,9 @@ void AudioSession::set_time_active_since()
 //////////////////////////////////////   Audio Monitor //////////////////////////////////////
 
 
-AudioMonitor::AudioMonitor(const DWORD cpid, const float vol_reduction)
-		: m_current_vol_reduction(vol_reduction) // TODO cambiar todo, antes era un flag en 0
-		, auto_change_volume_flag(false)
-		, m_skippid(cpid)
+AudioMonitor::AudioMonitor(vo::monitor_settings& settings)
+		: auto_change_volume_flag(false)
+		, m_settings(settings)
 		, m_pSessionEvents(NULL)
 		, m_pSessionManager2(NULL)
 		, m_abort(false)
@@ -970,6 +975,10 @@ AudioMonitor::AudioMonitor(const DWORD cpid, const float vol_reduction)
 #endif
 {
 	HRESULT hr = S_OK;
+
+	m_processid = GetCurrentProcessId();
+
+	SetSettings(m_settings);
 
 	// Initialize unique GUID for own events if not already created.
 	//if (IsEqualGUID(GUID_VO_CONTEXT_EVENT_ZERO, GUID_VO_CONTEXT_EVENT))
@@ -1236,6 +1245,54 @@ void AudioMonitor::ApplyCurrentSettings()
 	}
 }
 
+bool AudioMonitor::isSessionExcluded(DWORD pid, std::wstring sid)
+{
+	std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+	if (m_settings.exclude_own_process)
+	{
+		if (m_processid == pid)
+			return true;
+	}
+
+	std::transform(sid.begin(), sid.end(), sid.begin(), ::tolower);
+
+	if (!m_settings.use_included_filter)
+	{
+		for (auto n : m_settings.excluded_pids)
+		{
+			if (n == pid)
+				return true;
+		}
+		// search for name inside sid
+		for (auto n : m_settings.excluded_process)
+		{
+			std::size_t found = sid.find(n);
+			if (found != std::string::npos)
+				return true;
+		}
+	}
+	else
+	{
+		for (auto n : m_settings.included_pids)
+		{
+			if (n == pid)
+				return false;
+		}
+		// search for name inside sid
+		for (auto n : m_settings.included_process)
+		{
+			std::size_t found = sid.find(n);
+			if (found != std::string::npos)
+				return false;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 /*
 	Saves a New session in multimap
 
@@ -1270,15 +1327,18 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 	DWORD pid;
 	CHECK_HR(hr = pSessionControl2->GetProcessId(&pid));
 
-	if ((m_skippid != pid) && (pSessionControl2->IsSystemSoundsSession() == S_FALSE))
+	LPWSTR _sid;
+	CHECK_HR(hr = pSessionControl2->GetSessionIdentifier(&_sid)); // This one is NOT unique
+	std::wstring ws_sid(_sid);
+	CoTaskMemFree(_sid);
+
+	bool excluded = isSessionExcluded(pid, ws_sid);
+
+	if ((pSessionControl2->IsSystemSoundsSession() == S_FALSE) && !excluded)
 	{
 #ifdef _DEBUG
 		wprintf_s(L"\n---Saving New Session: PID [%d]\n", pid);
 #endif
-		LPWSTR _sid;
-		CHECK_HR(hr = pSessionControl2->GetSessionIdentifier(&_sid)); // This one is NOT unique
-		std::wstring ws_sid(_sid);
-		CoTaskMemFree(_sid);
 
 		LPWSTR _siid;
 		CHECK_HR(hr = pSessionControl2->GetSessionInstanceIdentifier(&_siid)); // This one is unique
@@ -1602,23 +1662,50 @@ long AudioMonitor::Refresh()
 	return static_cast<long>(ret); // TODO: error codes
 }
 
-void AudioMonitor::SetVolumeReductionLevel(const float vol_reduction)
+void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 {
 	std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
 
 	if (!l.owns_lock())
 	{
-		SYNC_CALL(&AudioMonitor::SetVolumeReductionLevel, this, vol_reduction);
+		SYNC_CALL(&AudioMonitor::SetSettings, this, std::ref(settings));
 	}
 	else
 	{
-		if (vol_reduction < 0)
-			m_current_vol_reduction = 0.0f;
+		m_settings = settings;
+
+		if (!m_settings.use_included_filter)
+		{
+			// search for name inside sid
+			for (auto n : m_settings.excluded_process)
+			{
+				std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+			}
+		}
 		else
-			m_current_vol_reduction = vol_reduction;
+		{
+			// search for name inside sid
+			for (auto n : m_settings.included_process)
+			{
+				std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+			}
+		}
+
+		if (m_settings.vol_reduction < 0)
+			m_settings.vol_reduction = 0.0f;
+
+		if (!m_settings.treat_vol_as_percentage)
+		{
+			if (m_settings.vol_reduction > 1.0f)
+				m_settings.vol_reduction = 1.0f;
+		}
+
+
+
 
 		ApplyCurrentSettings();
 	}
+
 }
 
 float AudioMonitor::GetVolumeReductionLevel()
@@ -1633,7 +1720,7 @@ float AudioMonitor::GetVolumeReductionLevel()
 	}
 	else
 	{
-		ret = m_current_vol_reduction;
+		ret = m_settings.vol_reduction;
 	}
 
 	return ret;

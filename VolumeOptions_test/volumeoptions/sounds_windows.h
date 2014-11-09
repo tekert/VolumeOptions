@@ -60,6 +60,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <atomic>
 
+#include "../volumeoptions/vo_settings.h"
+
 #ifndef SAFE_RELEASE
 #define SAFE_RELEASE(x)	\
 	if(x != NULL)		\
@@ -156,13 +158,13 @@ class AudioMonitor : public std::enable_shared_from_this<AudioMonitor>
 {
 public:
 	/* Created with STOPPED status */
-	AudioMonitor(const DWORD cpid, const float vol_reduction);
+	AudioMonitor(vo::monitor_settings& settings);
 	AudioMonitor(const AudioMonitor &) = delete; // non copyable
 	AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
 	~AudioMonitor();
 
-	void SetVolumeReductionLevel(const float vol_reduction = 0.5f); // TODO: mejor hacer class config
 	float GetVolumeReductionLevel();
+	void SetSettings(vo::monitor_settings& settings);
 
 	/* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
 	long Stop(); // Stops all events and deletes all saved sessions.
@@ -194,9 +196,11 @@ private:
 	IAudioSessionManager2* m_pSessionManager2;
 	IAudioSessionNotification* m_pSessionEvents;
 
-	// Settings //TODO: move to other structure
-	float m_current_vol_reduction;
-	DWORD m_skippid;
+	bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
+
+	// Settings
+	DWORD m_processid;
+	vo::monitor_settings m_settings;
 	const std::chrono::seconds m_inactive_timeout;
 	const std::chrono::seconds m_delete_expired_interval;
 
