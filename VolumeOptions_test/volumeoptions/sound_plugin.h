@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 
-// For team speak
+// Client Interface for Team Speak 3
 class VolumeOptions
 {
 public:
@@ -57,8 +57,6 @@ public:
 
 private:
 	std::shared_ptr<AudioMonitor> m_paudio_monitor;
-
-	DWORD m_cpid; // current process id, to filter. TODO: settings class
 
 	float m_vol_reduction; // Default user setting to reduce volume
 

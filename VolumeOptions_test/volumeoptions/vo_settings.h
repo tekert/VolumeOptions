@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace vo {
 
-	// Global default main settings.
+	// Library configurable settings
 	struct monitor_settings
 	{
 		monitor_settings()
@@ -45,17 +45,21 @@ namespace vo {
 			, vol_reduction(0.5f) 
 			, use_included_filter(false)
 			, treat_vol_as_percentage(true)
+			, reduce_only_active_sessions(true)
 		{}
 
-		std::set<unsigned long> excluded_pids;
-		std::set<std::wstring> excluded_process;
-		std::set<unsigned long>	included_pids;
-		std::set<std::wstring> included_process;
+		std::set<unsigned long> excluded_pids;		// process id blacklist
+		std::set<std::wstring> excluded_process;	// process names blacklist
+		std::set<unsigned long>	included_pids;		// process id whitelist
+		std::set<std::wstring> included_process;	// process names whitelist
 
+		std::map<std::wstring, unsigned long> selective_vol; //TODO: selective vol per process.
+
+		bool reduce_only_active_sessions;
 		bool treat_vol_as_percentage;
-		bool use_included_filter;
+		bool use_included_filter; // cant use both, blacklist or whitelist
 		bool exclude_own_process;
-		float vol_reduction;
+		float vol_reduction; // 0.0 to 1.0
 	};
 
 	struct client_settings

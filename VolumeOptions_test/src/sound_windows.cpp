@@ -642,7 +642,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 		opened, volume controls won work. wait for a bit */
 	Sleep(20);
 
-	// Apply current monitor volume settings con creation.
+	// Apply current monitor volume settings on creation.
 #ifdef VO_ENABLE_EVENTS
 	AudioSessionState State;
 	CHECK_HR(m_hrStatus = pSessionControl->GetState(&State));
@@ -664,7 +664,6 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 	from the last SID changed 5sec ago from the registry, see ChangeAudio for more doc. */
 	if (default_volume >= 0.0f)
 	{
-		// TODO: chekear que las sesiones nuevas corrigan bien el volumen
 		if ((m_default_volume != cur_v) && is_volume_at_default)
 		{
 			ChangeVolume(m_default_volume);	// fix correct windows volume before aplying settings
@@ -844,10 +843,21 @@ HRESULT AudioSession::ApplyVolumeSettings()
 	HRESULT hr = S_OK;
 
 	float current_vol_reduction = m_AudioMonitor.m_settings.vol_reduction;
+	bool reduce_vol = true;
+	// Only change volume if the session is active and configured to do so
+	if (m_AudioMonitor.m_settings.reduce_only_active_sessions)
+	{
+		AudioSessionState State;
+		m_pSessionControl->GetState(&State);
+		if (State == AudioSessionStateActive)
+			reduce_vol = true;
+		else
+			reduce_vol = false;
+	}
 
 	// if AudioSession::is_volume_at_default is true, the session is intact, not changed, else not
 	// if AudioMonitor::auto_change_volume_flag is true, volume reduction is in place, else disabled.
-	if ((is_volume_at_default) && (m_AudioMonitor.auto_change_volume_flag))
+	if ((is_volume_at_default) && (m_AudioMonitor.auto_change_volume_flag) && reduce_vol)
 	{
 		float set_vol;
 		if (m_AudioMonitor.m_settings.treat_vol_as_percentage)
@@ -1227,20 +1237,28 @@ void AudioMonitor::ApplyCurrentSettings()
 {
 	std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
+	// Search current saved sessions and remove based on settings.
+	for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end();)
+	{
+		bool excluded = isSessionExcluded(it->second->getPID(), it->second->getSID());
+		if (excluded)
+		{
+#ifdef _DEBUG
+			wprintf_s(L" Removing PID[%d] due to new config...\n", it->second->getPID());
+#endif
+			it = m_saved_sessions.erase(it);
+		}
+		else
+			it++;
+	}
+
 	if (auto_change_volume_flag)
 	{
-		// Only change volume of active saved sessions
-		AudioSessionState State;
+		// Update all session's volume
 		for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end(); ++it)
 		{
 			assert(it->second->m_pSessionControl);
-#ifdef VO_ENABLE_EVENTS
-			it->second->m_pSessionControl->GetState(&State);
-			if (State == AudioSessionStateActive)
-				it->second->ApplyVolumeSettings();
-#else
 			it->second->ApplyVolumeSettings();
-#endif
 		}
 	}
 }
@@ -1402,17 +1420,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 			// TODO: testear esto q puse
 			/*  Its possible that between apply current volume settings and enable Events
 					the session became active, so force a refresh again. */
-			// Force volume refresh again
-#ifdef VO_ENABLE_EVENTS
-			/*
-			AudioSessionState State;
-			CHECK_HR(hr = pSessionControl->GetState(&State));
-			if (State == AudioSessionStateActive)
-				pAudioSession->ApplyVolumeSettings();
-				*/
-#else
-			pAudioSession->ApplyVolumeSettings();
-#endif
+			//pAudioSession->ApplyVolumeSettings();
 		}
 	}
 	else
@@ -1676,7 +1684,7 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 
 		if (!m_settings.use_included_filter)
 		{
-			// search for name inside sid
+			// convert process names to lower
 			for (auto n : m_settings.excluded_process)
 			{
 				std::transform(n.begin(), n.end(), n.begin(), ::tolower);
@@ -1684,7 +1692,7 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 		}
 		else
 		{
-			// search for name inside sid
+			// convert process names to lower
 			for (auto n : m_settings.included_process)
 			{
 				std::transform(n.begin(), n.end(), n.begin(), ::tolower);

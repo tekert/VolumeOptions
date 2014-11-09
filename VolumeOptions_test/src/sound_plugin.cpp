@@ -62,6 +62,7 @@ std::string wstring_to_utf8(const std::wstring& str)
 VolumeOptions::VolumeOptions(const float v, const std::string &sconfigPath)
 {
 	vo::monitor_settings settings;
+
 	//m_paudio_monitor = std::make_shared<AudioMonitor>(m_cpid);
 	m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(settings));
 
