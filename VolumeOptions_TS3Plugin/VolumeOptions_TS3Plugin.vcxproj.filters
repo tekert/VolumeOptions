@@ -32,12 +32,6 @@
     <ClInclude Include="volumeoptions\plugin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\sound_plugin.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="volumeoptions\sounds_windows.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ts3client\clientlib_publicdefinitions.h">
       <Filter>Header Files\ts3client</Filter>
     </ClInclude>
@@ -58,6 +52,15 @@
     </ClInclude>
     <ClInclude Include="ts3client\ts3_functions.h">
       <Filter>Header Files\ts3client</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\sound_plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\sounds_windows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\vo_settings.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

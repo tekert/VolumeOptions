@@ -1191,8 +1191,8 @@ void WinErrorLog(LPTSTR lpszFunction)
 {
 	// Retrieve the system error message for the last-error code
 
-	LPVOID lpMsgBuf;
-	LPVOID lpDisplayBuf;
+	LPVOID lpMsgBuf = NULL;
+	LPVOID lpDisplayBuf = NULL;
 	DWORD dw = GetLastError();
 
 	FormatMessage(
@@ -1558,7 +1558,6 @@ public:
 
 
 
-
 int main(int argc, char* argv[])
 {
 	//PrintEndpointNames();
@@ -1577,7 +1576,7 @@ int main(int argc, char* argv[])
 	//VolumeOptions vo(0.5f, "");
 	VolumeOptions* vo = new VolumeOptions(0.5f, "C:\\SourceCodes\\Tekert\\VisualStudio\\Team Speak SDK\\test\\test_sound\\bin\\Debug_x64");
 	system("PAUSE");
-#if 0
+#if 1
 	for (int i = 0; i < 340; i++)
 	{
 		vo->process_talk(true);

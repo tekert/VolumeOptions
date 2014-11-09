@@ -4,6 +4,8 @@
  * Copyright (c) 2008-2014 TeamSpeak Systems GmbH
  */
 
+#include "../volumeoptions/sound_plugin.h"
+
 #ifdef _WIN32
 #pragma warning (disable : 4100)  /* Disable Unreferenced parameter warning */
 #include <Windows.h>
@@ -20,10 +22,8 @@
 #include "../ts3client/ts3_functions.h"
 #include "../volumeoptions/plugin.h"
 
-#include "../volumeoptions/sound_plugin.h"
-
 static struct TS3Functions ts3Functions;
-static VolumeOptions* vo; // our plugin main class
+static VolumeOptions* g_voptions; // our plugin main class
 
 #ifdef _WIN32
 #define _strcpy(dest, destSize, src) strcpy_s(dest, destSize, src)
@@ -80,7 +80,7 @@ const char* ts3plugin_name() {
 
 /* Plugin version */
 const char* ts3plugin_version() {
-    return "0.59";
+    return "0.60";
 }
 
 /* Plugin API version. Must be the same as the clients API major version, else the plugin fails to load. */
@@ -128,7 +128,7 @@ int ts3plugin_init() {
 	printf("PLUGIN: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
 	std::string sconfigPath(configPath);
-	vo = new VolumeOptions(0.5f, sconfigPath); // tekert
+	g_voptions = new VolumeOptions(0.5f, sconfigPath); // tekert
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable
@@ -141,8 +141,8 @@ void ts3plugin_shutdown() {
     /* Your plugin cleanup code here */
     printf("PLUGIN: shutdown\n");
 
-	vo->restore_default_volume(); // tekert
-	delete vo; // tekert
+	g_voptions->restore_default_volume(); // tekert
+	delete g_voptions; // tekert
 
 	/*
 	 * Note:
@@ -477,7 +477,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 	}
 
 	*data = (char*)malloc(INFODATA_BUFSIZE * sizeof(char));  /* Must be allocated in the plugin! */
-	snprintf(*data, INFODATA_BUFSIZE, "Volume reduction level: [I]\"%d%%\"[/I]", int(vo->get_volume_reduction()*100));  /* bbCode is supported. HTML is not supported */
+	snprintf(*data, INFODATA_BUFSIZE, "Volume reduction level: [I]\"%d%%\"[/I]", int(g_voptions->get_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
 	ts3Functions.freeMemory(name);
 }
 
@@ -822,11 +822,11 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
 
 	if (status == STATUS_TALKING) {
 		printf("VO_PLUGIN: %hu starts talking\n", clientID);
-		vo->process_talk(true);
+		g_voptions->process_talk(true);
 	}
 	else {
 		printf("VO_PLUGIN: %hu stops talking\n", clientID);
-		vo->process_talk(false);
+		g_voptions->process_talk(false);
 	}
 
 
