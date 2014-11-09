@@ -644,8 +644,8 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 
 	// Apply current monitor volume settings on creation.
 #ifdef VO_ENABLE_EVENTS
-	AudioSessionState State;
-	CHECK_HR(m_hrStatus = pSessionControl->GetState(&State));
+	AudioSessionState State = AudioSessionStateInactive;
+	CHECK_HR(m_hrStatus = m_pSessionControl->GetState(&State));
 	if (State == AudioSessionStateActive)
 	{
 		set_time_active_since();
@@ -763,7 +763,7 @@ void AudioSession::StopEvents()
 
 std::wstring AudioSession::getSID() const
 {
-	LPWSTR sid;
+	LPWSTR sid = NULL;
 
 	IAudioSessionControl2* pSessionControl2 = NULL;
 	CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
@@ -780,7 +780,7 @@ std::wstring AudioSession::getSID() const
 
 std::wstring AudioSession::getSIID() const
 {
-	LPWSTR siid;
+	LPWSTR siid = NULL;
 
 	IAudioSessionControl2* pSessionControl2 = NULL;
 	CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
@@ -797,7 +797,7 @@ std::wstring AudioSession::getSIID() const
 
 DWORD AudioSession::getPID() const
 {
-	DWORD pid;
+	DWORD pid = 0;
 
 	IAudioSessionControl2* pSessionControl2 = NULL;
 	CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
@@ -812,7 +812,7 @@ DWORD AudioSession::getPID() const
 
 float AudioSession::GetCurrentVolume()
 {
-	float current_volume;
+	float current_volume = -1.0f;
 
 	ISimpleAudioVolume* pSimpleAudioVolume = NULL;
 	CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&pSimpleAudioVolume));
@@ -847,7 +847,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
 	// Only change volume if the session is active and configured to do so
 	if (m_AudioMonitor.m_settings.reduce_only_active_sessions)
 	{
-		AudioSessionState State;
+		AudioSessionState State = AudioSessionStateInactive;
 		m_pSessionControl->GetState(&State);
 		if (State == AudioSessionStateActive)
 			reduce_vol = true;
@@ -1105,6 +1105,9 @@ HRESULT AudioMonitor::CreateSessionManager()
 
 	// Get the default audio device.
 	CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
+	assert(pDevice != NULL);
+	if (pDevice == NULL)
+		return hr;
 
 	// Get the session manager.
 	CHECK_HR(hr = pDevice->Activate(
@@ -1342,10 +1345,10 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 	// http://msdn.microsoft.com/en-us/library/windows/desktop/dd368257%28v=vs.85%29.aspx
 	//hr = pSessionControl2->IsSystemSoundsSession();
 
-	DWORD pid;
+	DWORD pid = 0;
 	CHECK_HR(hr = pSessionControl2->GetProcessId(&pid));
 
-	LPWSTR _sid;
+	LPWSTR _sid = NULL;
 	CHECK_HR(hr = pSessionControl2->GetSessionIdentifier(&_sid)); // This one is NOT unique
 	std::wstring ws_sid(_sid);
 	CoTaskMemFree(_sid);
@@ -1358,7 +1361,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 		wprintf_s(L"\n---Saving New Session: PID [%d]\n", pid);
 #endif
 
-		LPWSTR _siid;
+		LPWSTR _siid = NULL;
 		CHECK_HR(hr = pSessionControl2->GetSessionInstanceIdentifier(&_siid)); // This one is unique
 		std::wstring ws_siid(_siid);
 		CoTaskMemFree(_siid);

@@ -85,7 +85,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
 }
 #else
 #define CHECK_HR
-#define CHECK_REFS
+#define CHECK_REFS(x) false
 #endif
 
 
