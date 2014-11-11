@@ -188,3 +188,7 @@ FakesAssemblies/
 GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
+
+# My test files
+VO_readme_TODOS.txt
+test_sound.*
