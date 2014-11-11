@@ -24,6 +24,9 @@
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\test_sound.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\sound_plugin.h">
@@ -35,5 +38,14 @@
     <ClInclude Include="volumeoptions\vo_settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="volumeoptions\async_queue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\test_sound.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\VO_readme_TODOS.txt" />
   </ItemGroup>
 </Project>
