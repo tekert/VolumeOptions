@@ -21,27 +21,15 @@
     <ClCompile Include="src\sound_windows.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\test_sound.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="..\VO_readme_TODOS.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="volumeoptions\async_queue.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\sound_plugin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\sounds_windows.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="volumeoptions\test_sound.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\vo_settings.h">

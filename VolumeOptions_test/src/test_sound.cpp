@@ -38,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #include <boost/asio.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/system_timer.hpp>
+#include <boost/asio/deadline_timer.hpp>
 
 #if 0
 #ifdef _DEBUG
@@ -1537,25 +1540,106 @@ struct a_class : std::enable_shared_from_this<a_class>
 {
 private:
 
+	a_class() {
+		printf("%s\n", __FUNCTION__);
+	}
+
 public:
 	~a_class() {
 		printf("%s\n", __FUNCTION__);
-	}
-	a_class() {
-		printf("%s\n", __FUNCTION__);
-		std::shared_ptr<a_class> ptr(this);
 	}
 
 	a_class(const a_class&) = delete;
 	a_class& operator= (const a_class&) = delete;
 
-	template<typename ... T>
+	template<typename ...T>
 	static std::shared_ptr<a_class> create(T&& ... all)
 	{
 		return std::shared_ptr<a_class>(new a_class(std::forward<T>(all)...));
 	}
 };
 
+
+//boost::asio::steady_timer delay_timer(io);
+
+void worka(int i);
+void hold_resume(std::shared_ptr<boost::asio::system_timer>& timer, boost::system::error_code const& e = boost::system::error_code())
+{
+	//printf("%d\n", timer.use_count());
+
+	if (e == boost::asio::error::operation_aborted)
+		printf("asio message: %s\n", e.message());
+
+	if (e)
+		printf("asio message: %s\n", e.message());
+
+	worka(90);
+}
+
+void worka(int i)
+{
+	if (i < 4)
+	{
+		//std::this_thread::sleep_for(std::chrono::milliseconds(300));
+		//delay_timer.async_wait(std::bind(hold_resume, std::placeholders::_1));
+
+		//std::this_thread::sleep_for(std::chrono::milliseconds(2700));
+		std::shared_ptr<boost::asio::system_timer> delay_timer =
+			std::make_shared<boost::asio::system_timer>(io);
+		size_t nn = delay_timer->expires_from_now(std::chrono::seconds(2*i));
+		printf("n = %d count = %d\n", i, delay_timer.use_count());
+		delay_timer->async_wait(std::bind(hold_resume, delay_timer, std::placeholders::_1));
+
+		std::time_t now_c = std::chrono::system_clock::to_time_t(delay_timer->expires_at());
+		char tt[256];
+		ctime_s(tt, 256, &now_c);
+		std::cout << tt;
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		printf("%d\n", delay_timer.use_count());
+
+		return;
+	}
+
+
+
+	//std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	printf("Aca va.. %d\n", i);
+}
+
+void async_calls2(int i)
+{
+	ASYNC_CALL(worka, i);
+}
+
+void test_timer()
+{
+	//delay_timer.expires_from_now(std::chrono::milliseconds(2000));
+	std::thread th_producer(producer);
+
+	const int num_threads = 4;
+	std::thread threads[num_threads];
+	// spawn 10 threads:
+	for (int i = 0; i < num_threads; ++i)
+		threads[i] = std::thread(async_calls2, i);
+
+
+	{
+		
+	}
+
+	for (auto& th : threads) th.join();
+
+	std::this_thread::sleep_for(std::chrono::seconds(50));
+	printf("...Pasaron los 5sec\n");
+	g_abort = true;
+	io.stop();
+	th_producer.join();
+
+
+	system("PAUSE");
+
+}
 
 
 int main(int argc, char* argv[])
@@ -1567,16 +1651,18 @@ int main(int argc, char* argv[])
 	//test == 61 c3 a9 e3 83 9c 00
 	//system("PAUSE");
 
-	//async_test();
+	//sync_test();
 
-	//std::shared_ptr<a_class> p(a_class::create());
+	std::shared_ptr<a_class> p(a_class::create());
+	std::shared_ptr<a_class> pkh(a_class::create());
+	//test_timer();
 
 	//system("PAUSE");
 
 	//VolumeOptions vo(0.5f, "");
 	VolumeOptions* vo = new VolumeOptions(0.5f, "C:\\SourceCodes\\Tekert\\VisualStudio\\Team Speak SDK\\test\\test_sound\\bin\\Debug_x64");
 	system("PAUSE");
-#if 1
+#if 0
 	for (int i = 0; i < 340; i++)
 	{
 		vo->process_talk(true);
@@ -1590,6 +1676,16 @@ int main(int argc, char* argv[])
 
 	printf("\n\nFIN LOOP\n\n");
 	system("PAUSE");
+#endif
+
+#if 1
+	for (;;)
+	{
+		vo->process_talk(true);
+		system("PAUSE");
+		vo->process_talk(false);
+		system("PAUSE");
+	}
 #endif
 	
 	//vo.process_talk(true);

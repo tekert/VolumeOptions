@@ -130,16 +130,10 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
-    <ClCompile Include="src\test_sound.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="..\VO_readme_TODOS.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="volumeoptions\async_queue.h" />
     <ClInclude Include="volumeoptions\sounds_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
-    <ClInclude Include="volumeoptions\test_sound.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
