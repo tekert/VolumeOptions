@@ -46,7 +46,7 @@ namespace vo {
 			, use_included_filter(false)
 			, treat_vol_as_percentage(true)
 			, change_only_active_sessions(true)
-			, vol_up_delay(3000)
+			, vol_up_delay(700)
 		{}
 
 		std::set<unsigned long> excluded_pids;		// process id blacklist

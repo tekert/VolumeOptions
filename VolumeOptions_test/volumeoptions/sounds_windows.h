@@ -165,7 +165,9 @@ class AudioMonitor : public std::enable_shared_from_this<AudioMonitor>
 {
 public:
 	/* Created with STOPPED status */
-	// static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings) // if no variadic template support
+
+	// if no variadic template support
+	// static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings)
 	template<typename ...T>
 	static std::shared_ptr<AudioMonitor> create(T&&... all)
 	{
@@ -196,7 +198,8 @@ private:
 	AudioMonitor(vo::monitor_settings& settings);
 
 	// Main sessions container type
-	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
+	typedef std::unordered_multimap<std::wstring,
+				std::shared_ptr<AudioSession>> t_saved_sessions;
 
 	void poll(); /* AudioMonitor thread loop */
 
@@ -221,20 +224,23 @@ private:
 	const std::chrono::seconds m_delete_expired_interval;
 
 	// Used to delay or cancel all volume restores session_this_pointer -> timer
-	std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
+	std::unordered_map<const AudioSession*,
+		std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
 
 	bool m_auto_change_volume_flag;
 	monitor_status_t m_current_status;
 
 	// Main sessions container type
 	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
-	// Sessions currently Monitored, map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
+	// Sessions currently Monitored, 
+	//	map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
 	// You could look at it as group of different SIID sessions with the same SID.
 	t_saved_sessions m_saved_sessions;
 	typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 
 	friend class AudioSession;
-	friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
+	/* To select wich private methods others classes can acess */
+	friend class AudioCallbackProxy;
 
 	/* To sync Events with main class without "blocking" (async) 
 		or we cause mem leaks on simultaneous callbacks (confirmed) */
