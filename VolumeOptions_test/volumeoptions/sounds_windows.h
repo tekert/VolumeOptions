@@ -92,6 +92,8 @@ inline ULONG CHECK_REFS(IUnknown *p)
 class AudioMonitor;
 /*
 	Represents a Single windows Audio Session
+
+	TODO: hide it
 */
 class AudioSession : public std::enable_shared_from_this<AudioSession>
 {
@@ -117,12 +119,14 @@ private:
 	void StopEvents();
 
 	float GetCurrentVolume();
-	HRESULT ApplyVolumeSettings();	//TODO: mejor partir esta funcion, una en monitor y otra aca. ApplySessionVolumeSettings
+	HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional
 	void UpdateDefaultVolume(float new_def);
 	enum resume_t { NORMAL = false, NO_DELAY = true};
-	HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL); //TODO: mejor partir esta funcion, una en monitor y otra aca. RestoreSesisonVolume
-	void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession, boost::system::error_code const& e = boost::system::error_code());
+	HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
+	void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession,
+			boost::system::error_code const& e = boost::system::error_code());
 	void ChangeVolume(const float v);
+
 	void touch(); // sets m_last_modified_on now().
 	void set_time_active_since();
 	void set_time_inactive_since();
@@ -131,7 +135,6 @@ private:
 	bool is_volume_at_default;  // if true, session volume is at user default volume
 
 	mutable std::atomic<HRESULT> m_hrStatus;
-
 	std::chrono::steady_clock::time_point m_last_modified_on;
 	std::chrono::steady_clock::time_point m_last_active_state;
 
@@ -149,6 +152,8 @@ private:
 
 /*
 	Represents a windows Audio Manager, that containts current audio sessions
+
+	Use ::create() to instance the class, it will return a std::shared_ptr
 
 	With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
 		from this class.
@@ -190,22 +195,24 @@ private:
 
 	AudioMonitor(vo::monitor_settings& settings);
 
-	void poll(); /* AudioMonitor thread loop */
-	HRESULT CreateSessionManager();
+	// Main sessions container type
+	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
+	void poll(); /* AudioMonitor thread loop */
+
+	HRESULT CreateSessionManager();
 	HRESULT RefreshSessions();
 	void DeleteSessions();
 
 	HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
-	void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // TODO: not used yet, sessions not expiring...
+	void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // TODO: Not used yet
 	void DeleteExpiredSessions(boost::system::error_code const& e, 
 		std::shared_ptr<boost::asio::steady_timer> timer);
-	void ApplyCurrentSettings();
+	void ApplySettings();
+	bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
 
 	IAudioSessionManager2* m_pSessionManager2;
 	IAudioSessionNotification* m_pSessionEvents;
-
-	bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
 
 	// Settings
 	DWORD m_processid;
@@ -214,14 +221,15 @@ private:
 	const std::chrono::seconds m_delete_expired_interval;
 
 	// Used to delay or cancel all volume restores session_this_pointer -> timer
-	std::unordered_map<const AudioSession*, std::shared_ptr<boost::asio::steady_timer>> m_pending_restores;
+	std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
 
-	bool auto_change_volume_flag;
+	bool m_auto_change_volume_flag;
 	monitor_status_t m_current_status;
 
+	// Main sessions container type
+	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 	// Sessions currently Monitored, map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
 	// You could look at it as group of different SIID sessions with the same SID.
-	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 	t_saved_sessions m_saved_sessions;
 	typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 
