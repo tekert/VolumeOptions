@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
     <ClCompile Include="src\test_sound.cpp" />

@@ -63,8 +63,9 @@ VolumeOptions::VolumeOptions(const float v, const std::string &sconfigPath)
 {
 	vo::monitor_settings settings;
 
-	//m_paudio_monitor = std::make_shared<AudioMonitor>(m_cpid);
-	m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(settings));
+	//m_paudio_monitor = std::make_shared<AudioMonitor>(settings);
+	m_paudio_monitor = AudioMonitor::create(settings);
+	//m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(settings));
 
 #ifdef VO_ENABLE_EVENTS
 	m_paudio_monitor->InitEvents();
@@ -159,8 +160,7 @@ int VolumeOptions::process_talk(const bool talk_status)
 	if (!m_calls.empty() && m_quiet)
 	{
 		printf("\nVO: Monitoring Sessions Active\n\n");
-		//m_paudio_monitor->Start(m_vol_reduction);
-		r = m_paudio_monitor->Resume();
+		r = m_paudio_monitor->Start();
 		m_quiet = false;
 	}
 

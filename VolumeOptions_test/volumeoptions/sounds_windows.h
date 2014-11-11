@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define _WIN32_WINNT 0x0601 // Minimum Win7 or Windows Server 2008 R2
 #endif
 
-#define VO_ENABLE_EVENTS //TODO: ver si realmente hace falta esto.. osea quien no lo va ausar?
+#define VO_ENABLE_EVENTS //TODO: do we really need this macro? was originaly for vista support but...
 
 #include <boost/asio.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -90,7 +90,6 @@ inline ULONG CHECK_REFS(IUnknown *p)
 
 
 class AudioMonitor;
-
 /*
 	Represents a Single windows Audio Session
 */
@@ -118,9 +117,11 @@ private:
 	void StopEvents();
 
 	float GetCurrentVolume();
-	HRESULT ApplyVolumeSettings();
+	HRESULT ApplyVolumeSettings();	//TODO: mejor partir esta funcion, una en monitor y otra aca. ApplySessionVolumeSettings
 	void UpdateDefaultVolume(float new_def);
-	HRESULT RestoreVolume();
+	enum resume_t { NORMAL = false, NO_DELAY = true};
+	HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL); //TODO: mejor partir esta funcion, una en monitor y otra aca. RestoreSesisonVolume
+	void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession, boost::system::error_code const& e = boost::system::error_code());
 	void ChangeVolume(const float v);
 	void touch(); // sets m_last_modified_on now().
 	void set_time_active_since();
@@ -145,6 +146,7 @@ private:
 	friend class AudioCallbackProxy;
 };
 
+
 /*
 	Represents a windows Audio Manager, that containts current audio sessions
 
@@ -158,7 +160,12 @@ class AudioMonitor : public std::enable_shared_from_this<AudioMonitor>
 {
 public:
 	/* Created with STOPPED status */
-	AudioMonitor(vo::monitor_settings& settings);
+	// static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings) // if no variadic template support
+	template<typename ...T>
+	static std::shared_ptr<AudioMonitor> create(T&&... all)
+	{
+		return std::shared_ptr<AudioMonitor>(new AudioMonitor(std::forward<T>(all)...));
+	}
 	AudioMonitor(const AudioMonitor &) = delete; // non copyable
 	AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
 	~AudioMonitor();
@@ -169,7 +176,7 @@ public:
 	/* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
 	long Stop(); // Stops all events and deletes all saved sessions.
 	long Pause(); // Restores volume on all sessions and freezes volume change
-	long Resume(); // Resumes volume change and reaplies settings.
+	long Start(); // Resumes/Starts volume change and reaplies settings.
 	long Refresh(); // Gets all current sessions in SndVol
 #ifdef VO_ENABLE_EVENTS 
 	long InitEvents();
@@ -177,9 +184,11 @@ public:
 #endif
 	enum monitor_status_t { STOPPED, RUNNING, PAUSED };
 	monitor_status_t GetStatus();
-	std::weak_ptr<boost::asio::io_service> get_io();
+	std::shared_ptr<boost::asio::io_service> get_io();
 
 private:
+
+	AudioMonitor(vo::monitor_settings& settings);
 
 	void poll(); /* AudioMonitor thread loop */
 	HRESULT CreateSessionManager();
@@ -188,7 +197,7 @@ private:
 	void DeleteSessions();
 
 	HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
-	void DeleteSession(std::wstring siid); // TODO: not used yet, sessions not expiring...
+	void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // TODO: not used yet, sessions not expiring...
 	void DeleteExpiredSessions(boost::system::error_code const& e, 
 		std::shared_ptr<boost::asio::steady_timer> timer);
 	void ApplyCurrentSettings();
@@ -204,6 +213,9 @@ private:
 	const std::chrono::seconds m_inactive_timeout;
 	const std::chrono::seconds m_delete_expired_interval;
 
+	// Used to delay or cancel all volume restores session_this_pointer -> timer
+	std::unordered_map<const AudioSession*, std::shared_ptr<boost::asio::steady_timer>> m_pending_restores;
+
 	bool auto_change_volume_flag;
 	monitor_status_t m_current_status;
 
@@ -217,7 +229,7 @@ private:
 	friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
 
 	/* To sync Events with main class without "blocking" (async) 
-		or we cause mem leaks on callbacks (confirmed) */
+		or we cause mem leaks on simultaneous callbacks (confirmed) */
 	std::shared_ptr<boost::asio::io_service> m_io;
 	bool m_abort;
 	std::thread m_thread_monitor; /* poll thread */

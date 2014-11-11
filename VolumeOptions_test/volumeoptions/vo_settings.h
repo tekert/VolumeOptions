@@ -46,6 +46,7 @@ namespace vo {
 			, use_included_filter(false)
 			, treat_vol_as_percentage(true)
 			, reduce_only_active_sessions(true)
+			, vol_up_delay(30000)
 		{}
 
 		std::set<unsigned long> excluded_pids;		// process id blacklist
@@ -60,6 +61,7 @@ namespace vo {
 		bool use_included_filter; // cant use both, blacklist or whitelist
 		bool exclude_own_process;
 		float vol_reduction; // 0.0 to 1.0
+		std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
 	};
 
 	struct client_settings
