@@ -165,9 +165,7 @@ class AudioMonitor : public std::enable_shared_from_this<AudioMonitor>
 {
 public:
 	/* Created with STOPPED status */
-
-	// if no variadic template support
-	// static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings)
+	// static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings) // if no variadic template support
 	template<typename ...T>
 	static std::shared_ptr<AudioMonitor> create(T&&... all)
 	{
@@ -198,8 +196,7 @@ private:
 	AudioMonitor(vo::monitor_settings& settings);
 
 	// Main sessions container type
-	typedef std::unordered_multimap<std::wstring,
-				std::shared_ptr<AudioSession>> t_saved_sessions;
+	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
 	void poll(); /* AudioMonitor thread loop */
 
@@ -224,8 +221,7 @@ private:
 	const std::chrono::seconds m_delete_expired_interval;
 
 	// Used to delay or cancel all volume restores session_this_pointer -> timer
-	std::unordered_map<const AudioSession*,
-		std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
+	std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
 
 	bool m_auto_change_volume_flag;
 	monitor_status_t m_current_status;
@@ -239,8 +235,7 @@ private:
 	typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 
 	friend class AudioSession;
-	/* To select wich private methods others classes can acess */
-	friend class AudioCallbackProxy;
+	friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
 
 	/* To sync Events with main class without "blocking" (async) 
 		or we cause mem leaks on simultaneous callbacks (confirmed) */
