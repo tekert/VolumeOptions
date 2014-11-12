@@ -5,16 +5,16 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
-	* Redistributions of source code must retain the above copyright notice, this
-	list of conditions and the following disclaimer.
+    * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
 
-	* Redistributions in binary form must reproduce the above copyright notice,
-	this list of conditions and the following disclaimer in the documentation
-	and/or other materials provided with the distribution.
+    * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
 
-	* Neither the name of [project] nor the names of its
-	contributors may be used to endorse or promote products derived from
-	this software without specific prior written permission.
+    * Neither the name of [project] nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -45,26 +45,26 @@ class VolumeOptions
 {
 public:
 
-	VolumeOptions(const float v, const std::string &sconfigPath);
-	~VolumeOptions();
+    VolumeOptions(const float v, const std::string &sconfigPath);
+    ~VolumeOptions();
 
-	int process_talk(const bool talk_status);
+    int process_talk(const bool talk_status);
 
-	void restore_default_volume();
-	void set_volume_reduction(const float v);
-	float get_volume_reduction();
-	void reset_data(); /* not used*/
+    void restore_default_volume();
+    void set_volume_reduction(const float v);
+    float get_volume_reduction();
+    void reset_data(); /* not used*/
 
 private:
-	std::shared_ptr<AudioMonitor> m_paudio_monitor;
+    std::shared_ptr<AudioMonitor> m_paudio_monitor;
 
-	float m_vol_reduction; // Default user setting to reduce volume
+    float m_vol_reduction; // Default user setting to reduce volume
 
-	std::stack<bool> m_calls; // to count concurrent users talking
-	bool m_quiet; // if no one is talking, this is true
+    std::stack<bool> m_calls; // to count concurrent users talking
+    bool m_quiet; // if no one is talking, this is true
 
-	/* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
-	std::recursive_mutex m_mutex;
+    /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
+    std::recursive_mutex m_mutex;
 };
 
 // C++11 Standard conversions
