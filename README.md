@@ -25,6 +25,13 @@ Currently in development phase for later integrating it on Team Speak 3 and othe
 
 Class VolumeOptions in sound_plugin.h is the main class to use, adapt it to the app needs. Current header is an example for team speak 3 client plugin.
 
+Options for:  (in progress)
+Exclude or Include process names to monitor.
+Exclude or include own process.
+Change volume only in active audio sessions.
+Change volume by % or fixed.
+Delay (ms) volume restores to default.
+
 
 ####Status:
 * *Library development, Core 95% done* missing some minor options)
