@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <codecvt>
 #include <fstream>
 
+#include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
 
 
@@ -116,7 +117,7 @@ void VolumeOptions::restore_default_volume()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO: Restoring per app user default volume\n");
+    printf("VO_PLUGIN: Restoring per app user default volume\n");
 
     m_paudio_monitor->Stop();
 }
@@ -125,7 +126,7 @@ void VolumeOptions::reset_data()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO: Reseting call data\n");
+    printf("VO_PLUGIN: Reseting call data\n");
     while (!m_calls.empty())
         m_calls.pop();
 
@@ -145,12 +146,12 @@ int VolumeOptions::process_talk(const bool talk_status)
     else
         m_calls.pop();
 
-    printf("VO: Update Users currently talking: %d\n", m_calls.size());
+    printf("VO_PLUGIN: Update Users currently talking: %d\n", m_calls.size());
 
     // if last client stoped talking, restore sounds.
     if (m_calls.empty())
     {
-        printf("\nVO: Monitoring Sessions Stopped, Restoring Sessions to default state...\n\n");
+        printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
         //m_paudio_monitor->Stop();
         r = m_paudio_monitor->Pause();
         m_quiet = true;
@@ -159,7 +160,7 @@ int VolumeOptions::process_talk(const bool talk_status)
     // if someone talked while the channel was quiet, redudce volume (else was already lowered)
     if (!m_calls.empty() && m_quiet)
     {
-        printf("\nVO: Monitoring Sessions Active\n\n");
+        printf("\nVO_PLUGIN: Monitoring Sessions Active\n");
         r = m_paudio_monitor->Start();
         m_quiet = false;
     }

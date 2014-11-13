@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <set>
 
+#include "../volumeoptions/vo_config.h"
 
 namespace vo {
 

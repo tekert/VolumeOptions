@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\logger.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
@@ -134,9 +135,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\async_queue.h" />
+    <ClInclude Include="volumeoptions\debug.h" />
+    <ClInclude Include="volumeoptions\logger.hpp" />
     <ClInclude Include="volumeoptions\sounds_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
+    <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
   </ItemGroup>
   <ItemGroup>

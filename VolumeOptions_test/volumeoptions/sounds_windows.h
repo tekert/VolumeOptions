@@ -45,8 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define _WIN32_WINNT 0x0601 // Minimum Win7 or Windows Server 2008 R2
 #endif
 
-#define VO_ENABLE_EVENTS //TODO: do we really need this macro? was originaly for vista support but...
-
 #include <boost/asio.hpp>
 #include <boost/asio/steady_timer.hpp>
 
@@ -61,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <atomic>
 
+#include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/vo_settings.h"
 
 #ifndef SAFE_RELEASE
@@ -94,7 +93,7 @@ class AudioMonitor;
 /*
     Represents a Single windows Audio Session
 
-    TODO: hide it
+    TODO: make it subclass of audiomonitor for now.
 */
 class AudioSession : public std::enable_shared_from_this < AudioSession >
 {
@@ -150,6 +149,13 @@ private:
     friend class AudioCallbackProxy;
 };
 
+// TODO: maybe use a multiindex map on monitor so we have fast acces to up_delay_timer throgh another type index
+/*
+struct saved_sessions
+{
+    std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
+    std::shared_ptr<AudioSession> spAudioSession;
+};*/
 
 /*
     Represents a windows Audio Manager, that containts current audio sessions
