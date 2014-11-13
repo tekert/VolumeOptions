@@ -9,7 +9,7 @@ Compatibility:
 
 Requieres boost::asio and boost::system library to build.
 Built using Visual Studio 2013, Win32 and x64
-Solution and proyects ready to build on windows.
+Solution and projects ready to build on windows.
 
 Its a plugin like interface for communication software or any application that needs to lower volume of other applications with customization. It uses WASAPI to work on sessions mostly (SndVol sessions), not individual streams (yet).
 Its configured on default to reduce volume of other sessions conserving default user volume on restore, on windows it supports auto detection of new sessions, delete expired sessions, detects duplicate audio processes and acts acordingly also fixing some windows perks about default volume of repeated sessions but always restores to correct user volume. Its built to not mess with user configuration in any way exept if main software where the plugin is used crashes (wich almost never happens exept on blackout), in that case there is nothing we can do exept wait for user to manualy readjust.
