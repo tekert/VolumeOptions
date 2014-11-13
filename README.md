@@ -20,10 +20,10 @@ Currently in development phase for later integrating it on Team Speak 3 and othe
 ###Use:
 >(TODO: complete interface)
 
-Class <blockquote>VolumeOptions</blockquote> in <blockquote>sound_plugin.h</blockquote> is the main class to use, adapt it to the app needs. Current header is an example for team speak 3 client plugin.
+Class VolumeOptions in sound_plugin.h is the main class to use, adapt it to the app needs. Current header is an example for team speak 3 client plugin.
 
 
 ####Status:
-* *Library development, Core 95% done* <blockquote>(missing some minor options)</blockquote>
-* *ts3 plugin interface, 50% done* <blockquote>(missing gui screen)</blockquote>
-* *Configuration file: 60% done.* <blockquote>(need to complete parsing from plugin gui)</blockquote>
+* *Library development, Core 95% done* missing some minor options)
+* *ts3 plugin interface, 50% done* (missing gui screen)
+* *Configuration file: 60% done.* (need to complete parsing from plugin gui)
