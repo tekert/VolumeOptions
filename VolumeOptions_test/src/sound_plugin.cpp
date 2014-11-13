@@ -122,7 +122,7 @@ void VolumeOptions::restore_default_volume()
     m_paudio_monitor->Stop();
 }
 
-void VolumeOptions::reset_data()
+void VolumeOptions::reset_data() // Utility, not realy used.
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 

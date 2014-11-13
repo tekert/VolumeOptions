@@ -575,7 +575,12 @@ public:
             HRESULT hr = S_OK;
             CHECK_HR(hr = pNewSessionControl->RegisterAudioSessionNotification(pAudioEvents));
             CHECK_HR(hr = pNewSessionControl->UnregisterAudioSessionNotification(pAudioEvents));
+
+            done:
             SAFE_RELEASE(pAudioEvents);
+
+            if (FAILED(hr))
+                return hr;
         }
 
         if (pNewSessionControl)
@@ -689,7 +694,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 #ifdef _DEBUG
 #ifndef VO_ENABLE_EVENTS
     AudioSessionState State;
-    m_hrStatus = pSessionControl->GetState(&State);
+    m_hrStatus = CHECK_HR(m_hrStatus = pSessionControl->GetState(&State));
 #endif
     wchar_t *pszState = L"?????";
     switch (State)
@@ -707,6 +712,9 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
     wprintf_s(L"*AudioSession::AudioSession Saved SIID PID[%d]: %s State: %s\n", getPID(), getSIID().c_str(),
         pszState);
 #endif
+
+
+done:;
 
 }
 
@@ -746,6 +754,8 @@ void AudioSession::InitEvents()
     }
 
     assert(m_pAudioEvents);
+
+done:;
 }
 
 /*
@@ -770,6 +780,7 @@ void AudioSession::StopEvents()
     if (m_pAudioEvents != NULL)
         assert(CHECK_REFS(m_pAudioEvents) == 1);
 
+done:
     SAFE_RELEASE(m_pAudioEvents);
 }
 
@@ -799,6 +810,7 @@ float AudioSession::GetCurrentVolume()
     CHECK_HR(m_hrStatus = pSimpleAudioVolume->GetMasterVolume(&current_volume));
     dprintf("AudioSession::GetCurrentVolume() PID[%d] = %.2f\n", getPID(), current_volume);
 
+done:
     SAFE_RELEASE(pSimpleAudioVolume);
 
     return current_volume;
@@ -1016,6 +1028,7 @@ void AudioSession::ChangeVolume(const float v)
 
     dprintf("AudioSession::ChangeVolume PID[%d] Forcing volume level = %.2f\n", getPID(), v);
 
+done:
     SAFE_RELEASE(pSimpleAudioVolume);
 }
 
@@ -1038,7 +1051,8 @@ void AudioSession::set_time_active_since()
 
 
 AudioMonitor::AudioMonitor(vo::monitor_settings& settings)
-    : m_auto_change_volume_flag(false)
+    : m_current_status(INITERROR)
+    , m_auto_change_volume_flag(false)
     , m_settings(settings)
     , m_pSessionEvents(NULL)
     , m_pSessionManager2(NULL)
@@ -1060,6 +1074,8 @@ AudioMonitor::AudioMonitor(vo::monitor_settings& settings)
     m_io.reset(new boost::asio::io_service);
 
     hr = CreateSessionManager();
+    if (FAILED(hr))
+        return;
 
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
@@ -1137,6 +1153,46 @@ void AudioMonitor::poll()
 }
 
 /*
+    Specifies the ducking options for the application.
+
+    pSessionManager2 -> An already referenced pSessionManager2
+    If DuckingOptOutChecked is TRUE system ducking is disabled; 
+    FALSE, system ducking is enabled.
+*/
+HRESULT DuckingOptOut(bool DuckingOptOutChecked, IAudioSessionManager2* pSessionManager2)
+{
+    HRESULT hr = S_OK;
+
+    if (!pSessionManager2)
+        return E_INVALIDARG;
+
+    // Disable ducking experience and later restore it if it was enabled
+    IAudioSessionControl2* pSessionControl2 = NULL;
+    IAudioSessionControl* pSessionControl = NULL;
+
+    CHECK_HR(hr = pSessionManager2->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl));
+    assert(pSessionControl);
+
+    CHECK_HR(hr = pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
+    assert(pSessionControl2);
+    
+    if (DuckingOptOutChecked)
+    {
+        CHECK_HR(hr = pSessionControl2->SetDuckingPreference(TRUE));
+    }
+    else
+    {
+        CHECK_HR(hr = pSessionControl2->SetDuckingPreference(FALSE));
+    }
+
+done:
+    SAFE_RELEASE(pSessionControl2);
+    SAFE_RELEASE(pSessionControl);
+
+    return hr;
+}
+
+/*
     Creates the IAudioSessionManager instance on default output device
 */
 HRESULT AudioMonitor::CreateSessionManager()
@@ -1154,21 +1210,24 @@ HRESULT AudioMonitor::CreateSessionManager()
         NULL, CLSCTX_ALL,
         __uuidof(IMMDeviceEnumerator),
         (void**)&pEnumerator));
-
-    if (pEnumerator == NULL)
-        return S_FALSE; // error creating instance
+    assert(pEnumerator != NULL);
 
     // Get the default audio device.
     CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
     assert(pDevice != NULL);
-    if (pDevice == NULL)
-        return hr;
 
     // Get the session manager.
     CHECK_HR(hr = pDevice->Activate(
         __uuidof(IAudioSessionManager2), CLSCTX_ALL,
         NULL, (void**)&m_pSessionManager2));
+    assert(m_pSessionManager2);
 
+   // Disable ducking experience and later restore it if it was enabled
+   // TODO: i dont know how to get current status to restore it later, better dont touch it then,
+   //    let the user handle it.
+   // CHECK_HR(hr = DuckingOptOut(true, m_pSessionManager2));
+
+done:
     SAFE_RELEASE(pEnumerator);
     SAFE_RELEASE(pDevice);
 
@@ -1181,7 +1240,6 @@ HRESULT AudioMonitor::CreateSessionManager()
     Uses windows7+ enumerator to list all SndVol sessions
     then saves each session found.
 
-    TODO: move filter settings to class, and create a set method
 */
 HRESULT AudioMonitor::RefreshSessions()
 {
@@ -1195,6 +1253,7 @@ HRESULT AudioMonitor::RefreshSessions()
     int cbSessionCount = 0;
 
     IAudioSessionEnumerator* pSessionList = NULL;
+    IAudioSessionControl* pSessionControl = NULL;
 
     // Delete saved sessions before overwriting
     DeleteSessions();
@@ -1212,16 +1271,16 @@ HRESULT AudioMonitor::RefreshSessions()
     static const bool unref_there = false;
     for (int index = 0; index < cbSessionCount; index++)
     {
-        IAudioSessionControl* pSessionControl = NULL;
-
         // Get the <n>th session.
         CHECK_HR(hr = pSessionList->GetSession(index, &pSessionControl));
 
-        CHECK_HR(hr = SaveSession(pSessionControl, unref_there));
+        hr = SaveSession(pSessionControl, unref_there); // TODO handle error.
 
         SAFE_RELEASE(pSessionControl);
     }
 
+done:
+    SAFE_RELEASE(pSessionControl);
     SAFE_RELEASE(pSessionList);
 
     return hr;
@@ -1390,6 +1449,10 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
+    std::wstring ws_sid;
+    std::wstring ws_siid;
+    DWORD pid = 0;
+
     assert(pSessionControl);
     IAudioSessionControl2* pSessionControl2 = NULL;
     CHECK_HR(hr = pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
@@ -1399,12 +1462,11 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
     // http://msdn.microsoft.com/en-us/library/windows/desktop/dd368257%28v=vs.85%29.aspx
     //hr = pSessionControl2->IsSystemSoundsSession();
 
-    DWORD pid = 0;
     CHECK_HR(hr = pSessionControl2->GetProcessId(&pid));
 
     LPWSTR _sid = NULL;
     CHECK_HR(hr = pSessionControl2->GetSessionIdentifier(&_sid)); // This one is NOT unique
-    std::wstring ws_sid(_sid);
+    ws_sid = _sid;
     CoTaskMemFree(_sid);
 
     bool excluded = isSessionExcluded(pid, ws_sid);
@@ -1415,7 +1477,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
 
         LPWSTR _siid = NULL;
         CHECK_HR(hr = pSessionControl2->GetSessionInstanceIdentifier(&_siid)); // This one is unique
-        std::wstring ws_siid(_siid);
+        ws_siid =_siid;
         CoTaskMemFree(_siid);
 
         bool duplicate = false;
@@ -1462,18 +1524,22 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
         if (!duplicate)
         {
             // Initialize the new AudioSession and store it.
-            std::shared_ptr<AudioSession> pAudioSession = std::make_shared<AudioSession>(pSessionControl,
-                *this, last_sid_volume_fix); // TODO: doesnt work with private constructor
-#ifdef VO_ENABLE_EVENTS
-            pAudioSession->InitEvents();
-#endif
-            // Save session
-            m_saved_sessions.insert(t_session_pair(ws_sid, pAudioSession));
+            //std::shared_ptr<AudioSession> pAudioSession = std::make_shared<AudioSession>(pSessionControl,
+                //*this, last_sid_volume_fix); // TODO: doesnt work with private constructor
+            std::shared_ptr<AudioSession> pAudioSession(new AudioSession(pSessionControl, *this, last_sid_volume_fix));
 
-            // TODO: testear esto q puse
-            /*  Its possible that between apply current volume settings and enable Events
-                    the session became active, so force a refresh again. */
-            //pAudioSession->ApplyVolumeSettings();
+            if (!FAILED(pAudioSession->GetStatus()))
+            {
+
+#ifdef VO_ENABLE_EVENTS
+                pAudioSession->InitEvents();
+#endif
+                // Save session
+                m_saved_sessions.insert(t_session_pair(ws_sid, pAudioSession));
+
+            }
+            else
+                dwprintf(L"---AudioMonitor::SaveSession PID[%d] ERROR creating session\n", pid);
         }
     }
     else
@@ -1481,6 +1547,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
         dwprintf(L"---AudioMonitor::SaveSession PID[%d] skipped...\n", pid);
     }
 
+done:
     SAFE_RELEASE(pSessionControl2);
     if (unref)
         SAFE_RELEASE(pSessionControl);
@@ -1538,6 +1605,9 @@ long AudioMonitor::Stop()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
             return 0;
 
@@ -1580,12 +1650,17 @@ long AudioMonitor::InitEvents()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         // Events for adding new sessions
         if ((m_pSessionManager2 != NULL) && (m_pSessionEvents == NULL))
         {
             m_pSessionEvents = new CSessionNotifications(this->shared_from_this()); // AddRef() on constructor
             CHECK_HR(ret = m_pSessionManager2->RegisterSessionNotification(m_pSessionEvents));
             assert(m_pSessionEvents);
+
+        done:;
         }
     }
 
@@ -1612,6 +1687,9 @@ long AudioMonitor::StopEvents()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         // Stop new session notifications
         if ((m_pSessionManager2 != NULL) && (m_pSessionEvents != NULL))
             CHECK_HR(ret = m_pSessionManager2->UnregisterSessionNotification(m_pSessionEvents));
@@ -1619,6 +1697,7 @@ long AudioMonitor::StopEvents()
         if (m_pSessionEvents != NULL)
             assert(CHECK_REFS(m_pSessionEvents) == 1);
 
+        done:
         SAFE_RELEASE(m_pSessionEvents);
     }
 
@@ -1642,6 +1721,9 @@ long AudioMonitor::Pause()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
             return 0;
         if (m_current_status == AudioMonitor::monitor_status_t::PAUSED)
@@ -1686,6 +1768,9 @@ long AudioMonitor::Start()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         if (m_current_status == AudioMonitor::monitor_status_t::RUNNING)
             return 0;
 
@@ -1734,6 +1819,9 @@ long AudioMonitor::Refresh()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         ret = RefreshSessions();
     }
 
@@ -1750,6 +1838,9 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return;
+
         m_settings = settings;
 
         if (!m_settings.use_included_filter)
@@ -1798,6 +1889,9 @@ float AudioMonitor::GetVolumeReductionLevel()
     }
     else
     {
+        if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
+            return -1;
+
         ret = m_settings.ses_default_settings.vol_reduction;
     }
 

@@ -71,12 +71,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     }
 #endif
 
+#ifndef CHECK_HR
+#define CHECK_HR(hr) if (FAILED(hr)) { assert(false); goto done;}
+#endif
 
 #ifdef _DEBUG
-
-#ifndef CHECK_HR
-#define CHECK_HR(hr) if (FAILED(hr)) { assert(false);}
-#endif
 inline ULONG CHECK_REFS(IUnknown *p)
 {
     ULONG n = p->AddRef();
@@ -84,8 +83,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
     return n;
 }
 #else
-#define CHECK_HR
-#define CHECK_REFS(x) false
+#define CHECK_REFS(...)
 #endif
 
 
@@ -98,8 +96,7 @@ class AudioMonitor;
 class AudioSession : public std::enable_shared_from_this < AudioSession >
 {
 public:
-    AudioSession(IAudioSessionControl *pSessionControl,
-        AudioMonitor& m_AudioMonitor, float default_volume = -1.0f);
+
     AudioSession(const AudioSession &) = delete; // non copyable
     AudioSession& operator= (const AudioSession&) = delete; // non copyassignable
     ~AudioSession();
@@ -114,17 +111,21 @@ public:
     DWORD getPID() const;
 
 private:
+    AudioSession(IAudioSessionControl *pSessionControl,
+        AudioMonitor& m_AudioMonitor, float default_volume = -1.0f);
 
     void InitEvents();
     void StopEvents();
 
     float GetCurrentVolume();
-    HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional
+    HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
     void UpdateDefaultVolume(float new_def);
+
     enum resume_t { NORMAL = false, NO_DELAY = true };
     HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
     void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession,
         boost::system::error_code const& e = boost::system::error_code());
+
     void ChangeVolume(const float v);
 
     void touch(); // sets m_last_modified_on now().
@@ -198,7 +199,7 @@ public:
     long InitEvents();
     long StopEvents();
 #endif
-    enum monitor_status_t { STOPPED, RUNNING, PAUSED };
+    enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
     monitor_status_t GetStatus();
     std::shared_ptr<boost::asio::io_service> get_io();
 
@@ -231,7 +232,7 @@ private:
     const std::chrono::seconds m_inactive_timeout;
     const std::chrono::seconds m_delete_expired_interval;
 
-    // Used to delay or cancel all volume restores session_this_pointer -> timer
+    // Used to delay or cancel all volume restores  session_this_pointer -> timer
     std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
 
     bool m_auto_change_volume_flag;
