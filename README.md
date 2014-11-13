@@ -7,7 +7,7 @@
 ###Compatibility:
   Compatible with Windows 7+ and Windows Server R2+
 
-Requieres boost::asio and boost::system library to build.
+Requieres boost::asio and boost::system library to build. (version 1.57.0)
 Built using Visual Studio 2013, Win32 and x64
 Solution and projects ready to build on windows.
 
