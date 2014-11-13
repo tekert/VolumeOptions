@@ -134,6 +134,10 @@ private:
     float m_default_volume; // always marks user default volume of this SID session
     bool is_volume_at_default;  // if true, session volume is at user default volume
 
+    DWORD m_pid;
+    std::wstring m_sid;
+    std::wstring m_siid;
+
     mutable std::atomic<HRESULT> m_hrStatus;
     std::chrono::steady_clock::time_point m_last_modified_on;
     std::chrono::steady_clock::time_point m_last_active_state;

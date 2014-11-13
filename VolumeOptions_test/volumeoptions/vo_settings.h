@@ -38,16 +38,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace vo {
 
+    struct session_settings
+    {
+        session_settings()
+            : change_only_active_sessions(true)
+            , treat_vol_as_percentage(true)
+            , vol_up_delay(700)
+            , vol_reduction(0.5f)
+        {}
+
+        // Session settings
+        bool change_only_active_sessions;
+        bool treat_vol_as_percentage;
+        float vol_reduction; // 0.0 to 1.0
+        std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
+    };
+
+
     // Library configurable settings
     struct monitor_settings
     {
         monitor_settings()
             : exclude_own_process(true)
-            , vol_reduction(0.5f)
+         //   , vol_reduction(0.5f)
             , use_included_filter(false)
-            , treat_vol_as_percentage(true)
-            , change_only_active_sessions(true)
-            , vol_up_delay(700)
+          //  , treat_vol_as_percentage(true)
+           // , change_only_active_sessions(true)
+           // , vol_up_delay(700)
         {}
 
         std::set<unsigned long> excluded_pids;		// process id blacklist
@@ -55,15 +72,20 @@ namespace vo {
         std::set<unsigned long>	included_pids;		// process id whitelist
         std::set<std::wstring> included_process;	// process names whitelist
 
-        std::map<std::wstring, unsigned long> selective_vol; //TODO: selective vol per process.
-
-        bool change_only_active_sessions;
-        bool treat_vol_as_percentage;
         bool use_included_filter; // cant use both, blacklist or whitelist
         bool exclude_own_process;
-        float vol_reduction; // 0.0 to 1.0
-        std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
+
+        std::map<std::wstring, session_settings> ses_individual_settings; // TODO
+
+        session_settings ses_default_settings;
+
+        // Session settings
+        //bool change_only_active_sessions;
+        //bool treat_vol_as_percentage;
+        //float vol_reduction; // 0.0 to 1.0
+       // std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
     };
+
 
     struct client_settings
     {
