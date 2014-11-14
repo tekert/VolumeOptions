@@ -65,12 +65,15 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="resources\version.h">
+    <ClInclude Include="volumeoptions\version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resources\version_res.h">
       <Filter>Resource Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="resources\vo_ts3plugin_version.rc">
+    <ResourceCompile Include="resources\version_res.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

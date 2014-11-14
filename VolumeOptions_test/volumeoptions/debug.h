@@ -1,9 +1,38 @@
+/*
+Copyright (c) 2014, Paul Dolcet
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+* Neither the name of [project] nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 #ifndef VO_DEBUG_H
 #define VO_DEBUG_H
 
 #include "../volumeoptions/vo_config.h"
-
+#if 0
 #include <mutex>
 #include <string>
 #include <fstream>
@@ -12,7 +41,6 @@
 #include <unordered_map>
 #include <thread>
 
-#if 1
 class logger
 {
     // all log streams share a single file descriptor
@@ -43,8 +71,7 @@ public:
         open_filename.clear();
     }
 
-    logger(std::string const& filename
-        , int instance, bool append)
+    logger(std::string const& filename, bool append)
     {
         m_filename = filename;
         reference_epoch = std::chrono::high_resolution_clock::now();
@@ -102,18 +129,31 @@ public:
         header = log_header.str();
     }
 
-    template<typename...pt >
-    void print(pt&&...args)
-    {
 
+ //   print_impl(std::forward<std::stringstream>(log_header_test), std::forward<pt>(args)...);
+
+
+    void print_impl(std::stringstream&& log_stream)
+    {
+        std::lock_guard<std::mutex> lock(write_mutex);
+     
+        static_cast<writer_type*>(this)->write(log_stream.str());
     }
 
+    template< typename First, typename...Rest >
+    void print_impl(std::stringstream&& log_stream, First&& parm1, Rest&&...parm)
+    {
+        log_stream << parm1;
+        print_impl(std::forward<std::stringstream>(log_stream), std::move(parm)...);
+    }
 
     template <class T>
     logger& operator<<(T const& v)
     {
-        mutex::scoped_lock l(file_mutex);
+        std::mutex::guard_lock l(file_mutex);
         open(false);
+        log_file << get_header();
+
         log_file << v;
         return *this;
     }
@@ -121,16 +161,6 @@ public:
     std::string m_filename;
 };
 #endif
-
-
-extern logger log_inst;
-
-#define LOG_WARN3(x) \
-{ \
-    log_inst << LOG_WARN2(__FUNCTION__, x); \
-}
-
-
 
 
 #endif

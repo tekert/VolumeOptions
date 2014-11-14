@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     WINDOWS 7+ or Server 2008 R2+ only
 
     SndVol.exe auto volume manager
-    */
+*/
 
 #include <WinSDKVer.h>
 #ifndef _WIN32_WINNT
@@ -192,7 +192,7 @@ namespace
         return r;
     }
 
-#else
+#else // TODO use this in code ifndef
 
     // Note: When all are released only the ones with the local bool set to true return, the others wait again.
 #define VO_SYNC_WAIT \
@@ -830,10 +830,10 @@ HRESULT AudioSession::ApplyVolumeSettings()
 {
     HRESULT hr = S_OK;
 
-    float current_vol_reduction = m_AudioMonitor.m_settings.ses_default_settings.vol_reduction;
+    float current_vol_reduction = m_AudioMonitor.m_settings.ses_global_settings.vol_reduction;
     bool reduce_vol = true;
     // Only change volume if the session is active and configured to do so
-    if (m_AudioMonitor.m_settings.ses_default_settings.change_only_active_sessions)
+    if (m_AudioMonitor.m_settings.ses_global_settings.change_only_active_sessions)
     {
         AudioSessionState State = AudioSessionStateInactive;
         m_pSessionControl->GetState(&State);
@@ -848,7 +848,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     if ((is_volume_at_default) && (m_AudioMonitor.m_auto_change_volume_flag) && reduce_vol)
     {
         float set_vol;
-        if (m_AudioMonitor.m_settings.ses_default_settings.treat_vol_as_percentage)
+        if (m_AudioMonitor.m_settings.ses_global_settings.treat_vol_as_percentage)
             set_vol = m_default_volume * (1.0f - current_vol_reduction);
         else
             set_vol = current_vol_reduction;
@@ -943,17 +943,17 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
         // if delays are configured create asio timers to "self" call with callback_no_delay = true
         //		timers are also stored on AudioMonitor to cancel them when necessary.
         if (!callback_no_delay && 
-            (m_AudioMonitor.m_settings.ses_default_settings.vol_up_delay != std::chrono::milliseconds::zero()))
+            (m_AudioMonitor.m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero()))
         {
             // play it safe, callback_no_delay should be true when called from destructor...
             std::shared_ptr<AudioSession> spAudioSession;
             try { spAudioSession = this->shared_from_this(); }
             catch (std::bad_weak_ptr&) { return hr; }
-
+#ifdef _DEBUG
             if (m_AudioMonitor.m_pending_restores.find(this) != m_AudioMonitor.m_pending_restores.end())
                 dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
                     "stopping old timer and replacing it... \n", getPID());
-
+#endif
             // Create an async callback timer :)
             // IMPORTANT: Delete timer from container when :
             //		1. Callback is completed before return.
@@ -964,7 +964,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             // NOTE: dont stop timers, delete or replace them to cancel timer.
             // IMPORTANT: Send a shared_ptr trough async call so we have something persistent to async!
             m_AudioMonitor.m_pending_restores[this] =
-                ASYNC_CALL_DELAY(m_AudioMonitor.m_io, m_AudioMonitor.m_settings.ses_default_settings.vol_up_delay,
+                ASYNC_CALL_DELAY(m_AudioMonitor.m_io, m_AudioMonitor.m_settings.ses_global_settings.vol_up_delay,
                 &AudioSession::RestoreHolderCallback, this, spAudioSession, std::placeholders::_1);
 
             dprintf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
@@ -1050,7 +1050,7 @@ void AudioSession::set_time_active_since()
 //////////////////////////////////////   Audio Monitor //////////////////////////////////////
 
 
-AudioMonitor::AudioMonitor(vo::monitor_settings& settings)
+AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
     : m_current_status(INITERROR)
     , m_auto_change_volume_flag(false)
     , m_settings(settings)
@@ -1828,7 +1828,7 @@ long AudioMonitor::Refresh()
     return static_cast<long>(ret); // TODO: error codes
 }
 
-void AudioMonitor::SetSettings(vo::monitor_settings& settings)
+void AudioMonitor::SetSettings(const vo::monitor_settings& settings)
 {
     std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
 
@@ -1860,13 +1860,13 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
             }
         }
 
-        if (m_settings.ses_default_settings.vol_reduction < 0)
-            m_settings.ses_default_settings.vol_reduction = 0.0f;
+        if (m_settings.ses_global_settings.vol_reduction < 0)
+            m_settings.ses_global_settings.vol_reduction = 0.0f;
 
-        if (!m_settings.ses_default_settings.treat_vol_as_percentage)
+        if (!m_settings.ses_global_settings.treat_vol_as_percentage)
         {
-            if (m_settings.ses_default_settings.vol_reduction > 1.0f)
-                m_settings.ses_default_settings.vol_reduction = 1.0f;
+            if (m_settings.ses_global_settings.vol_reduction > 1.0f)
+                m_settings.ses_global_settings.vol_reduction = 1.0f;
         }
 
         // TODO: complete when adding options
@@ -1892,7 +1892,7 @@ float AudioMonitor::GetVolumeReductionLevel()
         if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
             return -1;
 
-        ret = m_settings.ses_default_settings.vol_reduction;
+        ret = m_settings.ses_global_settings.vol_reduction;
     }
 
     return ret;

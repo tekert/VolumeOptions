@@ -40,25 +40,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 
+struct volume_options_settings
+{
+    volume_options_settings()
+        //: server_id("test")
+    {}
+
+    vo::monitor_settings monitor_settings;
+
+    // add extra settings for your inteface.
+    std::string server_id;
+};
+
+
 // Client Interface for Team Speak 3
 class VolumeOptions
 {
 public:
 
-    VolumeOptions(const float v, const std::string &sconfigPath);
+    VolumeOptions(const volume_options_settings& settings, const std::string &sconfigPath);
     ~VolumeOptions();
 
     int process_talk(const bool talk_status);
 
     void restore_default_volume();
-    void set_volume_reduction(const float v);
+    void change_settings(const volume_options_settings& settings);
     float get_volume_reduction();
     void reset_data(); /* not used*/
+
+
 
 private:
     std::shared_ptr<AudioMonitor> m_paudio_monitor;
 
-    float m_vol_reduction; // Default user setting to reduce volume
+    volume_options_settings m_vo_settings;
 
     std::stack<bool> m_calls; // to count concurrent users talking
     bool m_quiet; // if no one is talking, this is true

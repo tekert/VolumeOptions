@@ -110,6 +110,9 @@
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
+    <PreBuildEvent>
+      <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -152,7 +155,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
-    <ClInclude Include="resources\version.h" />
+    <ClInclude Include="resources\version_res.h" />
     <ClInclude Include="ts3client\clientlib_publicdefinitions.h" />
     <ClInclude Include="ts3client\plugin_definitions.h" />
     <ClInclude Include="ts3client\public_definitions.h" />
@@ -163,10 +166,11 @@
     <ClInclude Include="volumeoptions\plugin.h" />
     <ClInclude Include="volumeoptions\sounds_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
+    <ClInclude Include="volumeoptions\version.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="resources\vo_ts3plugin_version.rc" />
+    <ResourceCompile Include="resources\version_res.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -60,12 +60,13 @@ std::string wstring_to_utf8(const std::wstring& str)
 /////////////////////////	Team Speak Interface	//////////////////////////////////
 
 
-VolumeOptions::VolumeOptions(const float v, const std::string &sconfigPath)
+VolumeOptions::VolumeOptions(const volume_options_settings& settings, const std::string &sconfigPath)
 {
-    vo::monitor_settings settings;
+    // Parse your settings, monitor_settings are parsed when aplying to monitor.
+    m_vo_settings = settings;
 
     //m_paudio_monitor = std::make_shared<AudioMonitor>(settings);
-    m_paudio_monitor = AudioMonitor::create(settings);
+    m_paudio_monitor = AudioMonitor::create(settings.monitor_settings);
     //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(settings));
 
 #ifdef VO_ENABLE_EVENTS
@@ -75,7 +76,6 @@ VolumeOptions::VolumeOptions(const float v, const std::string &sconfigPath)
     m_paudio_monitor->Refresh();
 #endif
     m_quiet = true;
-    set_volume_reduction(v);
 
     // Create config file
     std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
@@ -95,22 +95,17 @@ VolumeOptions::~VolumeOptions()
     m_paudio_monitor.reset();
 }
 
-void VolumeOptions::set_volume_reduction(const float v)
+void VolumeOptions::change_settings(const volume_options_settings& settings)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    m_vol_reduction = v;
-
-    if (m_vol_reduction < 0)
-        m_vol_reduction = 0; // disabled
-
-    if (m_vol_reduction > 1.0) // mute volume basically
-        m_vol_reduction = 1.0;
+    m_paudio_monitor->SetSettings(settings.monitor_settings);
 }
 
 float VolumeOptions::get_volume_reduction()
 {
-    return m_vol_reduction;
+    // gets the global vol reduction. TODO: change name
+    return m_paudio_monitor->GetVolumeReductionLevel();
 }
 
 void VolumeOptions::restore_default_volume()

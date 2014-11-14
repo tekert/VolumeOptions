@@ -188,7 +188,7 @@ public:
     ~AudioMonitor();
 
     float GetVolumeReductionLevel();
-    void SetSettings(vo::monitor_settings& settings);
+    void SetSettings(const vo::monitor_settings& settings);
 
     /* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
     long Stop(); // Stops all events and deletes all saved sessions.
@@ -205,7 +205,7 @@ public:
 
 private:
 
-    AudioMonitor(vo::monitor_settings& settings);
+    AudioMonitor(const vo::monitor_settings& settings);
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;

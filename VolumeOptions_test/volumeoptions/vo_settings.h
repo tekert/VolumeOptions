@@ -77,7 +77,7 @@ namespace vo {
 
         std::map<std::wstring, session_settings> ses_individual_settings; // TODO
 
-        session_settings ses_default_settings;
+        session_settings ses_global_settings;
 
         // Session settings
         //bool change_only_active_sessions;
