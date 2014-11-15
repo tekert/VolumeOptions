@@ -551,13 +551,13 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
 	 */
 
 	BEGIN_CREATE_MENUS(6);  /* IMPORTANT: Number of menu items must be correct! */
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_1,  "Omit client",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_2,  "Count client",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_1, "Omit channel", "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_2, "Count channel", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_1,  "Include client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_2,  "Ignore client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_1, "Include this channel", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_2, "Ignore channel", "");
 	//CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_3, "Channel item 3", "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_1,  "Switch OFF",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_2,  "Switch ON",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_1,  "Switch VO ON",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_2,  "Switch VO OFF",  "");
 	END_CREATE_MENUS;  /* Includes an assert checking if the number of menu items matched */
 
 	/*
@@ -1111,14 +1111,14 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			/* Global menu item was triggered. selectedItemID is unused and set to zero. */
 			switch(menuItemID) {
 				case MENU_ID_GLOBAL_1:
-					/* Menu global 1 Turn OFF was triggered */
-                    g_voptions->set_status(VolumeOptions::status::DISABLED);
+					/* Menu global 1 Turn ON was triggered */
+                    g_voptions->set_status(VolumeOptions::status::ENABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 1);
 					break;
 				case MENU_ID_GLOBAL_2:
-					/* Menu global 2 Turn ON was triggered */
-                    g_voptions->set_status(VolumeOptions::status::ENABLED);
+					/* Menu global 2 Turn OFF was triggered */
+                    g_voptions->set_status(VolumeOptions::status::DISABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 1);
 					break;
@@ -1130,16 +1130,16 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			/* Channel contextmenu item was triggered. selectedItemID is the channelID of the selected channel */
 			switch(menuItemID) {
 				case MENU_ID_CHANNEL_1:
-                    /* Menu channel 1 Omit was triggered */
-                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::DISABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 1);
+                    /* Menu channel 1 Include was triggered */
+                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::ENABLED);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 1);
 					break;
 				case MENU_ID_CHANNEL_2:
-					/* Menu channel 2 Count was triggered */
-                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::ENABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 1);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 0);
+					/* Menu channel 2 Ignore was triggered */
+                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::DISABLED);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 0);
 					break;
 				case MENU_ID_CHANNEL_3:
 					/* Menu channel 3 was triggered */
@@ -1152,16 +1152,16 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			/* Client contextmenu item was triggered. selectedItemID is the clientID of the selected client */
 			switch(menuItemID) {
 				case MENU_ID_CLIENT_1:
-                    /* Menu client 1 Omit client was triggered */
-                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::DISABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 1);
+                    /* Menu client 1 Include client was triggered */
+                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::ENABLED);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 1);
 					break;
 				case MENU_ID_CLIENT_2:
-					/* Menu client 2 Count client was triggered */
-                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::ENABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 1);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 0);
+					/* Menu client 2 Ignore client was triggered */
+                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::DISABLED);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 0);
 					break;
 				default:
 					break;
