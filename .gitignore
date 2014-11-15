@@ -189,5 +189,8 @@ GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
 
-# Mis files
+# My test files
 VO_readme_TODOS.txt
+test_sound.*
+test_sound.cpp
+async_queue.*
