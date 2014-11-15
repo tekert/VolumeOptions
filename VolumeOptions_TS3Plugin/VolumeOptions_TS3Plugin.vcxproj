@@ -110,9 +110,7 @@
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
-    <PreBuildEvent>
-      <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>
-    </PreBuildEvent>
+    <PreBuildEvent />
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -130,6 +128,9 @@
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
+    <PreBuildEvent>
+      <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -147,6 +148,9 @@
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
+    <PreBuildEvent>
+      <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\plugin.cpp" />

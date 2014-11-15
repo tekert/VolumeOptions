@@ -128,7 +128,8 @@ int ts3plugin_init() {
 	printf("VO_PLUGIN: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
 	std::string sconfigPath(configPath);
-	g_voptions = new VolumeOptions(0.5f, sconfigPath); // tekert
+    vo::volume_options_settings settings;
+	g_voptions = new VolumeOptions(settings, sconfigPath); // tekert
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable
@@ -477,7 +478,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 	}
 
 	*data = (char*)malloc(INFODATA_BUFSIZE * sizeof(char));  /* Must be allocated in the plugin! */
-	snprintf(*data, INFODATA_BUFSIZE, "[I]%d%%[/I]", int(g_voptions->get_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
+	snprintf(*data, INFODATA_BUFSIZE, "[I]%d%%[/I]", int(g_voptions->get_global_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
 	ts3Functions.freeMemory(name);
 }
 

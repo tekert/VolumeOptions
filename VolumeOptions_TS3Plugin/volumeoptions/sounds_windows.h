@@ -5,16 +5,16 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
-	* Redistributions of source code must retain the above copyright notice, this
-	list of conditions and the following disclaimer.
+    * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
 
-	* Redistributions in binary form must reproduce the above copyright notice,
-	this list of conditions and the following disclaimer in the documentation
-	and/or other materials provided with the distribution.
+    * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
 
-	* Neither the name of [project] nor the names of its
-	contributors may be used to endorse or promote products derived from
-	this software without specific prior written permission.
+    * Neither the name of [project] nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -27,11 +27,12 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
 /*
 
-	WINDOWS 7+ or Server 2008 R2+ only
+    WINDOWS 7+ or Server 2008 R2+ only
 
-	SndVol.exe auto volume manager
+    SndVol.exe auto volume manager
 */
 
 #ifndef SOUND_WINDOWS_H
@@ -43,8 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601 // Minimum Win7 or Windows Server 2008 R2
 #endif
-
-#define VO_ENABLE_EVENTS //TODO: ver si realmente hace falta esto.. osea quien no lo va ausar?
 
 #include <boost/asio.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -60,171 +59,205 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <atomic>
 
+#include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/vo_settings.h"
 
 #ifndef SAFE_RELEASE
-#define SAFE_RELEASE(x)	\
-	if(x != NULL)		\
-	{					\
-		ULONG _n = x->Release();	\
-		/* n ? x : */ x = NULL ;		\
-	}
+#define SAFE_RELEASE(x)             \
+    if(x != NULL)                   \
+    {                               \
+        ULONG _n = x->Release();    \
+        /* n ? x : */ x = NULL ;    \
+    }
 #endif
-
-
-#ifdef _DEBUG
 
 #ifndef CHECK_HR
-#define CHECK_HR(hr) if (FAILED(hr)) { assert(false);}
+#define CHECK_HR(hr) if (FAILED(hr)) { assert(false); goto done;}
 #endif
+
+#ifdef _DEBUG
 inline ULONG CHECK_REFS(IUnknown *p)
 {
-	ULONG n = p->AddRef();
-	n = p->Release();
-	return n;
+    ULONG n = p->AddRef();
+    n = p->Release();
+    return n;
 }
 #else
-#define CHECK_HR
-#define CHECK_REFS(x) false
+#define CHECK_REFS(...)
 #endif
 
 
 class AudioMonitor;
-
 /*
-	Represents a Single windows Audio Session
+    Represents a Single windows Audio Session
+
+    TODO: make it nested class of audiomonitor for now.
 */
-class AudioSession : public std::enable_shared_from_this<AudioSession>
+class AudioSession : public std::enable_shared_from_this < AudioSession >
 {
 public:
-	AudioSession(IAudioSessionControl *pSessionControl,
-		AudioMonitor& m_AudioMonitor, float default_volume = -1.0f);
-	AudioSession(const AudioSession &) = delete; // non copyable
-	AudioSession& operator= (const AudioSession&) = delete; // non copyassignable
-	~AudioSession();
 
-	/* public methods here must be const, thread safe and non bloking */
-	/* this class will be called from external callbacks sometimes through shared_ptr */
-	/* and require non bloking actions, so.. no mutex alowed inside public methods */
-	HRESULT GetStatus() const { return m_hrStatus; };
+    AudioSession(const AudioSession &) = delete; // non copyable
+    AudioSession& operator= (const AudioSession&) = delete; // non copyassignable
+    ~AudioSession();
 
-	std::wstring getSID() const;
-	std::wstring getSIID() const;
-	DWORD getPID() const;
+    /* public methods here must be const, thread safe and non bloking */
+    /* this class will be called from external callbacks sometimes through shared_ptr */
+    /* and require non bloking actions, so.. no mutex alowed inside public methods */
+    HRESULT GetStatus() const { return m_hrStatus; };
+
+    std::wstring getSID() const;
+    std::wstring getSIID() const;
+    DWORD getPID() const;
 
 private:
+    AudioSession(IAudioSessionControl *pSessionControl,
+        AudioMonitor& m_AudioMonitor, float default_volume = -1.0f);
 
-	void InitEvents();
-	void StopEvents();
+    void InitEvents();
+    void StopEvents();
 
-	float GetCurrentVolume();
-	HRESULT ApplyVolumeSettings();
-	void UpdateDefaultVolume(float new_def);
-	HRESULT RestoreVolume();
-	void ChangeVolume(const float v);
-	void touch(); // sets m_last_modified_on now().
-	void set_time_active_since();
-	void set_time_inactive_since();
+    float GetCurrentVolume();
+    HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
+    void UpdateDefaultVolume(float new_def);
 
-	float m_default_volume; // always marks user default volume of this SID session
-	bool is_volume_at_default;  // if true, session volume is at user default volume
+    enum resume_t { NORMAL = false, NO_DELAY = true };
+    HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
+    void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession,
+        boost::system::error_code const& e = boost::system::error_code());
 
-	mutable std::atomic<HRESULT> m_hrStatus;
+    void ChangeVolume(const float v);
 
-	std::chrono::steady_clock::time_point m_last_modified_on;
-	std::chrono::steady_clock::time_point m_last_active_state;
+    void touch(); // sets m_last_modified_on now().
+    void set_time_active_since();
+    void set_time_inactive_since();
 
-	IAudioSessionControl* m_pSessionControl;
-	IAudioSessionEvents *m_pAudioEvents;
-	IAudioSessionControl2* m_pSessionControl2;
-	ISimpleAudioVolume* m_pSimpleAudioVolume;
-	AudioMonitor& m_AudioMonitor;  // To witch monitor it blongs
+    float m_default_volume; // always marks user default volume of this SID group session
+    bool is_volume_at_default;  // if true, session volume is at user default volume
 
-	/* Only this class can manage this object in thread safe way */
-	friend class AudioMonitor;
-	friend class AudioCallbackProxy;
+    DWORD m_pid;
+    std::wstring m_sid;
+    std::wstring m_siid;
+
+    mutable std::atomic<HRESULT> m_hrStatus;
+    std::chrono::steady_clock::time_point m_last_modified_on;
+    std::chrono::steady_clock::time_point m_last_active_state;
+
+    IAudioSessionControl* m_pSessionControl;
+    IAudioSessionEvents *m_pAudioEvents;
+    IAudioSessionControl2* m_pSessionControl2;
+    ISimpleAudioVolume* m_pSimpleAudioVolume;
+    AudioMonitor& m_AudioMonitor;  // To witch monitor it blongs
+
+    /* Only this class can manage this object in thread safe way */
+    friend class AudioMonitor;
+    friend class AudioCallbackProxy;
 };
 
+// TODO: maybe use a multiindex map on monitor so we have fast acces to up_delay_timer throgh another type index
 /*
-	Represents a windows Audio Manager, that containts current audio sessions
+struct saved_sessions
+{
+    std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
+    std::shared_ptr<AudioSession> spAudioSession;
+};*/
 
-	With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
-		from this class.
-	Without VO_ENABLE_EVENTS, events will be disabled (no callbacks from windows audio), thats means it wont
-		detect new sessions while monitor is active, and will lower volume of all applications
-		instead of only the active ones if configured to do so.
+/*
+    Represents a windows Audio Manager, that containts current audio sessions
+
+    Use ::create() to instance the class, it will return a std::shared_ptr
+
+    With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
+        from this class.
+    Without VO_ENABLE_EVENTS, events will be disabled (no callbacks from windows audio), thats means it wont
+        detect new sessions while monitor is active, and will lower volume of all applications
+        instead of only the active ones if configured to do so.
 */
-class AudioMonitor : public std::enable_shared_from_this<AudioMonitor>
+class AudioMonitor : public std::enable_shared_from_this < AudioMonitor >
 {
 public:
-	/* Created with STOPPED status */
-	AudioMonitor(vo::monitor_settings& settings);
-	AudioMonitor(const AudioMonitor &) = delete; // non copyable
-	AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
-	~AudioMonitor();
+    /* Created with STOPPED status */
+    // static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings) // if no variadic template support
+    template<typename ...T>
+    static std::shared_ptr<AudioMonitor> create(T&&... all)
+    {
+        return std::shared_ptr<AudioMonitor>(new AudioMonitor(std::forward<T>(all)...));
+    }
+    AudioMonitor(const AudioMonitor &) = delete; // non copyable
+    AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
+    ~AudioMonitor();
 
-	float GetVolumeReductionLevel();
-	void SetSettings(vo::monitor_settings& settings);
+    float GetVolumeReductionLevel();
+    void SetSettings(vo::monitor_settings& settings);
+    vo::monitor_settings GetSettings();
 
-	/* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
-	long Stop(); // Stops all events and deletes all saved sessions.
-	long Pause(); // Restores volume on all sessions and freezes volume change
-	long Resume(); // Resumes volume change and reaplies settings.
-	long Refresh(); // Gets all current sessions in SndVol
+    /* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
+    long Stop(); // Stops all events and deletes all saved sessions.
+    long Pause(); // Restores volume on all sessions and freezes volume change
+    long Start(); // Resumes/Starts volume change and reaplies settings.
+    long Refresh(); // Gets all current sessions in SndVol
 #ifdef VO_ENABLE_EVENTS 
-	long InitEvents();
-	long StopEvents();
+    long InitEvents();
+    long StopEvents();
 #endif
-	enum monitor_status_t { STOPPED, RUNNING, PAUSED };
-	monitor_status_t GetStatus();
-	std::weak_ptr<boost::asio::io_service> get_io();
+    enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
+    monitor_status_t GetStatus();
+    std::shared_ptr<boost::asio::io_service> get_io();
 
 private:
 
-	void poll(); /* AudioMonitor thread loop */
-	HRESULT CreateSessionManager();
+    AudioMonitor(const vo::monitor_settings& settings);
 
-	HRESULT RefreshSessions();
-	void DeleteSessions();
+    // Main sessions container type
+    typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
-	HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
-	void DeleteSession(std::wstring siid); // TODO: not used yet, sessions not expiring...
-	void DeleteExpiredSessions(boost::system::error_code const& e, 
-		std::shared_ptr<boost::asio::steady_timer> timer);
-	void ApplyCurrentSettings();
+    void poll(); /* AudioMonitor thread loop */
 
-	IAudioSessionManager2* m_pSessionManager2;
-	IAudioSessionNotification* m_pSessionEvents;
+    HRESULT CreateSessionManager();
+    HRESULT RefreshSessions();
+    void DeleteSessions();
 
-	bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
+    HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
+    void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // TODO: Not used yet
+    void DeleteExpiredSessions(boost::system::error_code const& e,
+        std::shared_ptr<boost::asio::steady_timer> timer);
+    void ApplySettings();
+    bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
 
-	// Settings
-	DWORD m_processid;
-	vo::monitor_settings m_settings;
-	const std::chrono::seconds m_inactive_timeout;
-	const std::chrono::seconds m_delete_expired_interval;
+    IAudioSessionManager2* m_pSessionManager2;
+    IAudioSessionNotification* m_pSessionEvents;
 
-	bool auto_change_volume_flag;
-	monitor_status_t m_current_status;
+    // Settings
+    DWORD m_processid;
+    vo::monitor_settings m_settings;
+    const std::chrono::seconds m_inactive_timeout;
+    const std::chrono::seconds m_delete_expired_interval;
 
-	// Sessions currently Monitored, map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
-	// You could look at it as group of different SIID sessions with the same SID.
-	typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
-	t_saved_sessions m_saved_sessions;
-	typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
+    // Used to delay or cancel all volume restores  session_this_pointer -> timer
+    std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores; //TODO: try to merge it with saved_sessions, new container or class
 
-	friend class AudioSession;
-	friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
+    bool m_auto_change_volume_flag;
+    monitor_status_t m_current_status;
 
-	/* To sync Events with main class without "blocking" (async) 
-		or we cause mem leaks on callbacks (confirmed) */
-	std::shared_ptr<boost::asio::io_service> m_io;
-	bool m_abort;
-	std::thread m_thread_monitor; /* poll thread */
+    // Main sessions container type
+    typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
+    // Sessions currently Monitored, 
+    //	map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
+    // You could look at it as group of different SIID sessions with the same SID.
+    t_saved_sessions m_saved_sessions;
+    typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 
-	std::recursive_mutex m_mutex;
+    friend class AudioSession;
+    friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
+
+    /* To sync Events with main class without "blocking" (async)
+        or we cause mem leaks on simultaneous callbacks (confirmed) */
+    std::shared_ptr<boost::asio::io_service> m_io;
+    bool m_abort;
+    std::thread m_thread_monitor; /* poll thread */
+
+    mutable std::recursive_mutex m_mutex;
 };
-
 
 
 #endif

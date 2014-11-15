@@ -1071,15 +1071,12 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
     // Initialize unique GUID for own events if not already created.
     //if (IsEqualGUID(GUID_VO_CONTEXT_EVENT_ZERO, GUID_VO_CONTEXT_EVENT))
     //CHECK_HR(hr = CoCreateGuid(&GUID_VO_CONTEXT_EVENT));
-    m_io.reset(new boost::asio::io_service);
 
-    hr = CreateSessionManager();
-    if (FAILED(hr))
-        return;
+    m_io.reset(new boost::asio::io_service);
 
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
-    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
+    dprintf("AudioMonitor init complete\n");
 }
 
 AudioMonitor::~AudioMonitor()
@@ -1122,6 +1119,14 @@ void AudioMonitor::poll()
 {
     // No other thread can use this class while pooling
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // IMPORTANT: call CoInitializeEx in this thread. not in constructors thread
+    dprintf("AudioMonitor CreateSessionManager() on monitor thread\n");
+    HRESULT hr = CreateSessionManager();
+    if (FAILED(hr))
+        throw;
+
+    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
 
     dprintf("\n\t...AudioMonitor Thread Init\n\n");
 
@@ -1202,7 +1207,16 @@ HRESULT AudioMonitor::CreateSessionManager()
     IMMDevice* pDevice = NULL;
     IMMDeviceEnumerator* pEnumerator = NULL;
 
-    CHECK_HR(hr = CoInitializeEx(NULL, COINIT_MULTITHREADED));
+    // Check if not already called.
+    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if (hr == S_FALSE)
+        dprintf("AudioMonitor::CreateSessionManager  CoInitializeEx: The COM library is already initialized on "
+        "this thread.");
+    if (hr == RPC_E_CHANGED_MODE)
+        dprintf("AudioMonitor::CreateSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
+        "the concurrency model for this thread ");
+
+    dprintf("AudioMonitor CreateSessionManager() Creating instance...\n");
 
     // Create the device enumerator.
     CHECK_HR(hr = CoCreateInstance(

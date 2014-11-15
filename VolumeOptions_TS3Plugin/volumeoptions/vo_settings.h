@@ -5,16 +5,16 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
-* Redistributions of source code must retain the above copyright notice, this
-list of conditions and the following disclaimer.
+    * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
 
-* Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation
-and/or other materials provided with the distribution.
+    * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
 
-* Neither the name of [project] nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
+    * Neither the name of [project] nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -34,37 +34,60 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <set>
 
+#include "../volumeoptions/vo_config.h"
 
 namespace vo {
 
-	// Library configurable settings
-	struct monitor_settings
-	{
-		monitor_settings()
-			: exclude_own_process(true)
-			, vol_reduction(0.5f) 
-			, use_included_filter(false)
-			, treat_vol_as_percentage(true)
-			, reduce_only_active_sessions(true)
-		{}
+    struct session_settings
+    {
+        session_settings()
+            : change_only_active_sessions(true)
+            , treat_vol_as_percentage(true)
+            , vol_up_delay(700)
+            , vol_reduction(0.5f)
+        {}
 
-		std::set<unsigned long> excluded_pids;		// process id blacklist
-		std::set<std::wstring> excluded_process;	// process names blacklist
-		std::set<unsigned long>	included_pids;		// process id whitelist
-		std::set<std::wstring> included_process;	// process names whitelist
+        // Session settings
+        bool change_only_active_sessions;
+        bool treat_vol_as_percentage;
+        float vol_reduction; // 0.0 to 1.0
+        std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
+    };
 
-		std::map<std::wstring, unsigned long> selective_vol; //TODO: selective vol per process.
 
-		bool reduce_only_active_sessions;
-		bool treat_vol_as_percentage;
-		bool use_included_filter; // cant use both, blacklist or whitelist
-		bool exclude_own_process;
-		float vol_reduction; // 0.0 to 1.0
-	};
+    // Library configurable settings
+    struct monitor_settings
+    {
+        monitor_settings()
+            : exclude_own_process(true)
+            , use_included_filter(false)
+        {}
 
-	struct client_settings
-	{
+        std::set<unsigned long> excluded_pids;		// process id blacklist
+        std::set<std::wstring> excluded_process;	// process names blacklist
+        std::set<unsigned long>	included_pids;		// process id whitelist
+        std::set<std::wstring> included_process;	// process names whitelist
 
-	};
+        bool use_included_filter; // cant use both, blacklist or whitelist
+        bool exclude_own_process;
+
+        std::map<std::wstring, session_settings> ses_individual_settings; // TODO
+
+        session_settings ses_global_settings;
+    };
+
+    struct volume_options_settings
+    {
+        volume_options_settings()
+            : exclude_own_client(true)
+        {}
+
+        // TODO: remove monitor_settings and make vol_reduction shortcuts
+        vo::monitor_settings monitor_settings;
+
+        // add extra settings for your inteface.
+        bool exclude_own_client;
+    };
+
 }
 #endif
