@@ -1208,11 +1208,12 @@ HRESULT AudioMonitor::CreateSessionManager()
     IMMDeviceEnumerator* pEnumerator = NULL;
 
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+
     if (hr == S_FALSE)
-        dprintf("AudioMonitor::CreateSessionManager  CoInitializeEx: The COM library is already initialized on "
+        printf("AudioMonitor::CreateSessionManager  CoInitializeEx: The COM library is already initialized on "
         "this thread.");
     if (hr == RPC_E_CHANGED_MODE)
-        dprintf("AudioMonitor::CreateSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
+        printf("AudioMonitor::CreateSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
         "the concurrency model for this thread ");
 
     dprintf("AudioMonitor CreateSessionManager() Creating instance...\n");
