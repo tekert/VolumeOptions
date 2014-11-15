@@ -87,9 +87,5 @@ namespace vo {
     };
 
 
-    struct client_settings
-    {
-
-    };
 }
 #endif

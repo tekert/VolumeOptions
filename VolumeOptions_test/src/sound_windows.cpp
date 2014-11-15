@@ -1828,7 +1828,25 @@ long AudioMonitor::Refresh()
     return static_cast<long>(ret); // TODO: error codes
 }
 
-void AudioMonitor::SetSettings(const vo::monitor_settings& settings)
+vo::monitor_settings AudioMonitor::GetSettings()
+{
+    vo::monitor_settings ret;
+
+    std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
+
+    if (!l.owns_lock())
+    {
+        ret = SYNC_CALL_RET<vo::monitor_settings>(m_io, &AudioMonitor::GetSettings, this);
+    }
+    else
+    {
+        ret = m_settings;
+    }
+
+    return ret;
+}
+
+void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 {
     std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
 
@@ -1873,6 +1891,9 @@ void AudioMonitor::SetSettings(const vo::monitor_settings& settings)
 
 
         ApplySettings();
+
+        // return applied settings
+        settings = m_settings;
     }
 
 }

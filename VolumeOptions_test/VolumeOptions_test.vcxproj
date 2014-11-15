@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\sound_plugin_gui.cpp" />
     <ClCompile Include="src\logger.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -145,6 +146,7 @@
     </ClInclude>
     <ClInclude Include="volumeoptions\sounds_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
+    <ClInclude Include="volumeoptions\sound_plugin_gui.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
     <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />

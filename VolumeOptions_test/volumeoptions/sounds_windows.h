@@ -91,7 +91,7 @@ class AudioMonitor;
 /*
     Represents a Single windows Audio Session
 
-    TODO: make it subclass of audiomonitor for now.
+    TODO: make it nested class of audiomonitor for now.
 */
 class AudioSession : public std::enable_shared_from_this < AudioSession >
 {
@@ -132,7 +132,7 @@ private:
     void set_time_active_since();
     void set_time_inactive_since();
 
-    float m_default_volume; // always marks user default volume of this SID session
+    float m_default_volume; // always marks user default volume of this SID group session
     bool is_volume_at_default;  // if true, session volume is at user default volume
 
     DWORD m_pid;
@@ -188,7 +188,8 @@ public:
     ~AudioMonitor();
 
     float GetVolumeReductionLevel();
-    void SetSettings(const vo::monitor_settings& settings);
+    void SetSettings(vo::monitor_settings& settings);
+    vo::monitor_settings GetSettings();
 
     /* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
     long Stop(); // Stops all events and deletes all saved sessions.
@@ -233,7 +234,7 @@ private:
     const std::chrono::seconds m_delete_expired_interval;
 
     // Used to delay or cancel all volume restores  session_this_pointer -> timer
-    std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores;
+    std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores; //TODO: try to merge it with saved_sessions, new container or class
 
     bool m_auto_change_volume_flag;
     monitor_status_t m_current_status;
@@ -255,7 +256,7 @@ private:
     bool m_abort;
     std::thread m_thread_monitor; /* poll thread */
 
-    std::recursive_mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
 };
 
 

@@ -15,20 +15,22 @@ int main2(int argc, char* argv[])
 	// Example interface for talk software
     VolumeOptions* vo = new VolumeOptions(settings, ".");
 
+    unsigned __int64 channelID = 0;
+    unsigned __int64 clientID = 0;
 	for (;;)
 	{
-		vo->process_talk(true); // someone is talking, push the stack if this is the first one, start vol reduction
+        vo->process_talk(true, channelID, clientID); // someone is talking, push the stack if this is the first one, start vol reduction
 
         // change volume on the fly.
         settings.monitor_settings.ses_global_settings.vol_reduction = 0.7f;
-        vo->change_settings(settings);
+        vo->set_settings(settings);
 
-        vo->process_talk(true); // someone is talking, just push the stack
+        vo->process_talk(true, channelID, clientID); // someone is talking, just push the stack
 
 		system("PAUSE");
 
-		vo->process_talk(false); // someone stopped talking, pop the stack = non empty, do nothing.
-        vo->process_talk(false); // stack is empty, restores volume
+        vo->process_talk(false, channelID, clientID); // someone stopped talking, pop the stack = non empty, do nothing.
+        vo->process_talk(false, channelID, clientID); // stack is empty, restores volume
 
 		system("PAUSE");
 	}

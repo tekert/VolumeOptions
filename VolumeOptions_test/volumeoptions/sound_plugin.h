@@ -43,13 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 struct volume_options_settings
 {
     volume_options_settings()
-        //: server_id("test")
+        : excude_own_client(true)
     {}
 
     vo::monitor_settings monitor_settings;
 
     // add extra settings for your inteface.
-    std::string server_id;
+    bool excude_own_client;
 };
 
 
@@ -61,25 +61,40 @@ public:
     VolumeOptions(const volume_options_settings& settings, const std::string &sconfigPath);
     ~VolumeOptions();
 
-    int process_talk(const bool talk_status);
+    enum status { DISABLED = 0, ENABLED};
+
+    // talk status, true if talking, false if not talking anymore. optional ownclient = true if we are talking
+    int process_talk(const bool talk_status, unsigned __int64 channelID, unsigned __int64 clientID,
+        bool ownclient = false);
+
+    volume_options_settings get_current_settings() const; // TODO: minimize copies
+    void set_settings(volume_options_settings& settings);
 
     void restore_default_volume();
-    void change_settings(const volume_options_settings& settings);
-    float get_volume_reduction();
+    float get_global_volume_reduction() const;
     void reset_data(); /* not used*/
-
-
+    void set_status(status s);
+    void set_channel_status(unsigned __int64 selectedItemID, status s);
+    void set_client_status(unsigned __int64 channelID, status s);
 
 private:
+
+    void create_config_file(std::fstream& in);
+    int parse_config(std::fstream& in);
+
     std::shared_ptr<AudioMonitor> m_paudio_monitor;
 
     volume_options_settings m_vo_settings;
+    std::unordered_map<unsigned __int64, bool> m_disabled_channels;
+    std::unordered_map<unsigned __int64, bool> m_disabled_clients;
+
+    status m_status;
 
     std::stack<bool> m_calls; // to count concurrent users talking
     bool m_quiet; // if no one is talking, this is true
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
-    std::recursive_mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
 };
 
 // C++11 Standard conversions

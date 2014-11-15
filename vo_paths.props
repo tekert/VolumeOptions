@@ -3,10 +3,10 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros">
     <BOOST_LIB_DIR>C:\SourceCodes\Library\boost_1_57_0\stage\lib</BOOST_LIB_DIR>
+    <BOOST_LIB64_DIR>C:\SourceCodes\Library\boost_1_57_0\stage\lib64</BOOST_LIB64_DIR>
     <BOOST_INCLUDE_DIR>C:\SourceCodes\Library\boost_1_57_0</BOOST_INCLUDE_DIR>
     <VO_INCLUDE_DIR>$(SolutionDir)\volumeoptions\include</VO_INCLUDE_DIR>
     <VO_LIB_DIR />
-    <BOOST_LIB64_DIR>C:\SourceCodes\Library\boost_1_57_0\stage\lib64</BOOST_LIB64_DIR>
     <VO_LIB64_DIR />
   </PropertyGroup>
   <PropertyGroup>
@@ -23,6 +23,9 @@
     <BuildMacro Include="BOOST_LIB_DIR">
       <Value>$(BOOST_LIB_DIR)</Value>
     </BuildMacro>
+    <BuildMacro Include="BOOST_LIB64_DIR">
+      <Value>$(BOOST_LIB64_DIR)</Value>
+    </BuildMacro>
     <BuildMacro Include="BOOST_INCLUDE_DIR">
       <Value>$(BOOST_INCLUDE_DIR)</Value>
     </BuildMacro>
@@ -31,9 +34,6 @@
     </BuildMacro>
     <BuildMacro Include="VO_LIB_DIR">
       <Value>$(VO_LIB_DIR)</Value>
-    </BuildMacro>
-    <BuildMacro Include="BOOST_LIB64_DIR">
-      <Value>$(BOOST_LIB64_DIR)</Value>
     </BuildMacro>
     <BuildMacro Include="VO_LIB64_DIR">
       <Value>$(VO_LIB64_DIR)</Value>

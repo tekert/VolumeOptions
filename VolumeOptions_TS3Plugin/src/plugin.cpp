@@ -116,7 +116,7 @@ int ts3plugin_init() {
 	char pluginPath[PATH_BUFSIZE];
 
     /* Your plugin init code here */
-    printf("PLUGIN: init\n");
+    printf("VO_PLUGIN: init\n");
 
     /* Example on how to query application, resources and configuration paths from client */
     /* Note: Console client returns empty string for app and resources path */
@@ -125,7 +125,7 @@ int ts3plugin_init() {
     ts3Functions.getConfigPath(configPath, PATH_BUFSIZE);
 	ts3Functions.getPluginPath(pluginPath, PATH_BUFSIZE);
 
-	printf("PLUGIN: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
+	printf("VO_PLUGIN: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
 	std::string sconfigPath(configPath);
 	g_voptions = new VolumeOptions(0.5f, sconfigPath); // tekert
@@ -139,7 +139,7 @@ int ts3plugin_init() {
 /* Custom code called right before the plugin is unloaded */
 void ts3plugin_shutdown() {
     /* Your plugin cleanup code here */
-    printf("PLUGIN: shutdown\n");
+    printf("VO_PLUGIN: shutdown\n");
 
 	g_voptions->restore_default_volume(); // tekert
 	delete g_voptions; // tekert
@@ -164,7 +164,7 @@ void ts3plugin_shutdown() {
 
 /* Tell client if plugin offers a configuration window. If this function is not implemented, it's an assumed "does not offer" (PLUGIN_OFFERS_NO_CONFIGURE). */
 int ts3plugin_offersConfigure() {
-	printf("PLUGIN: offersConfigure\n");
+	printf("VO_PLUGIN: offersConfigure\n");
 	/*
 	 * Return values:
 	 * PLUGIN_OFFERS_NO_CONFIGURE         - Plugin does not implement ts3plugin_configure
@@ -176,7 +176,7 @@ int ts3plugin_offersConfigure() {
 
 /* Plugin might offer a configuration window. If ts3plugin_offersConfigure returns 0, this function does not need to be implemented. */
 void ts3plugin_configure(void* handle, void* qParentWidget) {
-    printf("PLUGIN: configure\n");
+    printf("VO_PLUGIN: configure\n");
 }
 
 /*
@@ -188,7 +188,7 @@ void ts3plugin_registerPluginID(const char* id) {
 	const size_t sz = strlen(id) + 1;
 	pluginID = (char*)malloc(sz * sizeof(char));
 	_strcpy(pluginID, sz, id);  /* The id buffer will invalidate after exiting this function */
-	printf("PLUGIN: registerPluginID: %s\n", pluginID);
+	printf("VO_PLUGIN: registerPluginID: %s\n", pluginID);
 }
 
 /* Plugin command keyword. Return NULL or "" if not used. */
@@ -206,7 +206,7 @@ int ts3plugin_processCommand(uint64 serverConnectionHandlerID, const char* comma
 	char* context = NULL;
 #endif
 
-	printf("PLUGIN: process command: '%s'\n", command);
+	printf("VO_PLUGIN: process command: '%s'\n", command);
 
 	_strcpy(buf, COMMAND_BUFSIZE, command);
 #ifdef _WIN32
@@ -288,10 +288,10 @@ int ts3plugin_processCommand(uint64 serverConnectionHandlerID, const char* comma
 				/* Send plugin command to all clients in current channel. In this case targetIds is unused and can be NULL. */
 				if(pluginID) {
 					/* See ts3plugin_registerPluginID for how to obtain a pluginID */
-					printf("PLUGIN: Sending plugin command to current channel: %s\n", param1);
+					printf("VO_PLUGIN: Sending plugin command to current channel: %s\n", param1);
 					ts3Functions.sendPluginCommand(serverConnectionHandlerID, pluginID, param1, PluginCommandTarget_CURRENT_CHANNEL, NULL, NULL);
 				} else {
-					printf("PLUGIN: Failed to send plugin command, was not registered.\n");
+					printf("VO_PLUGIN: Failed to send plugin command, was not registered.\n");
 				}
 			} else {
 				ts3Functions.printMessageToCurrentTab("Missing command parameter.");
@@ -428,7 +428,7 @@ int ts3plugin_processCommand(uint64 serverConnectionHandlerID, const char* comma
 
 /* Client changed current server connection handler */
 void ts3plugin_currentServerConnectionChanged(uint64 serverConnectionHandlerID) {
-    printf("PLUGIN: currentServerConnectionChanged %llu (%llu)\n", (long long unsigned int)serverConnectionHandlerID, (long long unsigned int)ts3Functions.getCurrentServerConnectionHandlerID());
+    printf("VO_PLUGIN: currentServerConnectionChanged %llu (%llu)\n", (long long unsigned int)serverConnectionHandlerID, (long long unsigned int)ts3Functions.getCurrentServerConnectionHandlerID());
 }
 
 /*
@@ -438,7 +438,7 @@ void ts3plugin_currentServerConnectionChanged(uint64 serverConnectionHandlerID) 
 
 /* Static title shown in the left column in the info frame */
 const char* ts3plugin_infoTitle() {
-	return "Test plugin info";
+	return "Volume reduction level: ";
 }
 
 /*
@@ -477,7 +477,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 	}
 
 	*data = (char*)malloc(INFODATA_BUFSIZE * sizeof(char));  /* Must be allocated in the plugin! */
-	snprintf(*data, INFODATA_BUFSIZE, "Volume reduction level: [I]\"%d%%\"[/I]", int(g_voptions->get_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
+	snprintf(*data, INFODATA_BUFSIZE, "[I]%d%%[/I]", int(g_voptions->get_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
 	ts3Functions.freeMemory(name);
 }
 
@@ -549,14 +549,14 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
 	 * e.g. for "test_plugin.dll", icon "1.png" is loaded from <TeamSpeak 3 Client install dir>\plugins\test_plugin\1.png
 	 */
 
-	BEGIN_CREATE_MENUS(7);  /* IMPORTANT: Number of menu items must be correct! */
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_1,  "Client item 1",  "1.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_2,  "Client item 2",  "2.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_1, "Channel item 1", "1.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_2, "Channel item 2", "2.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_3, "Channel item 3", "3.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_1,  "Global item 1",  "1.png");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_2,  "Global item 2",  "2.png");
+	BEGIN_CREATE_MENUS(6);  /* IMPORTANT: Number of menu items must be correct! */
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_1,  "Omit client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_2,  "Count client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_1, "Omit channel", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_2, "Count channel", "");
+	//CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_3, "Channel item 3", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_1,  "Switch OFF",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_2,  "Switch ON",  "");
 	END_CREATE_MENUS;  /* Includes an assert checking if the number of menu items matched */
 
 	/*
@@ -575,6 +575,10 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
 	 */
 	/* For example, this would disable MENU_ID_GLOBAL_2: */
 	/* ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 0); */
+
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 0);
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
 
 	/* All memory allocated in this function will be automatically released by the TeamSpeak client later by calling ts3plugin_freeMemory */
 }
@@ -631,7 +635,7 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
 
         /* Print clientlib version */
         if(ts3Functions.getClientLibVersion(&s) == ERROR_ok) {
-            printf("PLUGIN: Client lib version: %s\n", s);
+            printf("VO_PLUGIN: Client lib version: %s\n", s);
             ts3Functions.freeMemory(s);  /* Release string */
         } else {
             ts3Functions.logMessage("Error querying client lib version", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
@@ -649,7 +653,7 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
 			}
             return;
         }
-        printf("PLUGIN: Server name: %s\n", s);
+        printf("VO_PLUGIN: Server name: %s\n", s);
         ts3Functions.freeMemory(s);
 
         /* Print virtual server welcome message */
@@ -657,7 +661,7 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
             ts3Functions.logMessage("Error querying server welcome message", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
             return;
         }
-        printf("PLUGIN: Server welcome message: %s\n", s);
+        printf("VO_PLUGIN: Server welcome message: %s\n", s);
         ts3Functions.freeMemory(s);  /* Release string */
 
         /* Print own client ID and nickname on this server */
@@ -669,7 +673,7 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
             ts3Functions.logMessage("Error querying client nickname", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
             return;
         }
-        printf("PLUGIN: My client ID = %d, nickname = %s\n", myID, s);
+        printf("VO_PLUGIN: My client ID = %d, nickname = %s\n", myID, s);
         ts3Functions.freeMemory(s);
 
         /* Print list of all channels on this server */
@@ -677,20 +681,20 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
             ts3Functions.logMessage("Error getting channel list", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
             return;
         }
-        printf("PLUGIN: Available channels:\n");
+        printf("VO_PLUGIN: Available channels:\n");
         for(i=0; ids[i]; i++) {
             /* Query channel name */
             if(ts3Functions.getChannelVariableAsString(serverConnectionHandlerID, ids[i], CHANNEL_NAME, &s) != ERROR_ok) {
                 ts3Functions.logMessage("Error querying channel name", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
                 return;
             }
-            printf("PLUGIN: Channel ID = %llu, name = %s\n", (long long unsigned int)ids[i], s);
+            printf("VO_PLUGIN: Channel ID = %llu, name = %s\n", (long long unsigned int)ids[i], s);
             ts3Functions.freeMemory(s);
         }
         ts3Functions.freeMemory(ids);  /* Release array */
 
         /* Print list of existing server connection handlers */
-        printf("PLUGIN: Existing server connection handlers:\n");
+        printf("VO_PLUGIN: Existing server connection handlers:\n");
         if(ts3Functions.getServerConnectionHandlerList(&ids) != ERROR_ok) {
             ts3Functions.logMessage("Error getting server list", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
             return;
@@ -761,7 +765,7 @@ void ts3plugin_onServerUpdatedEvent(uint64 serverConnectionHandlerID) {
 }
 
 int ts3plugin_onServerErrorEvent(uint64 serverConnectionHandlerID, const char* errorMessage, unsigned int error, const char* returnCode, const char* extraMessage) {
-	printf("PLUGIN: onServerErrorEvent %llu %s %d %s\n", (long long unsigned int)serverConnectionHandlerID, errorMessage, error, (returnCode ? returnCode : ""));
+	printf("VO_PLUGIN: onServerErrorEvent %llu %s %d %s\n", (long long unsigned int)serverConnectionHandlerID, errorMessage, error, (returnCode ? returnCode : ""));
 	if(returnCode) {
 		/* A plugin could now check the returnCode with previously (when calling a function) remembered returnCodes and react accordingly */
 		/* In case of using a a plugin return code, the plugin can return:
@@ -776,7 +780,7 @@ void ts3plugin_onServerStopEvent(uint64 serverConnectionHandlerID, const char* s
 }
 
 int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetMode, anyID toID, anyID fromID, const char* fromName, const char* fromUniqueIdentifier, const char* message, int ffIgnored) {
-    printf("PLUGIN: onTextMessageEvent %llu %d %d %s %s %d\n", (long long unsigned int)serverConnectionHandlerID, targetMode, fromID, fromName, message, ffIgnored);
+    printf("VO_PLUGIN: onTextMessageEvent %llu %d %d %s %s %d\n", (long long unsigned int)serverConnectionHandlerID, targetMode, fromID, fromName, message, ffIgnored);
 
 	/* Friend/Foe manager has ignored the message, so ignore here as well. */
 	if(ffIgnored) {
@@ -806,27 +810,33 @@ int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetM
 
 void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int status, int isReceivedWhisper, anyID clientID) 
 {
-	// tekert
-
-	// Skip own client TODO: move this to other less called function and make it global per server.
+    /* Skip own client TODO: move this to other less called function and make it global per server. */
 	anyID myID;
-	if (ts3Functions.getClientID(serverConnectionHandlerID, &myID) != ERROR_ok) {
+	if (ts3Functions.getClientID(serverConnectionHandlerID, &myID) != ERROR_ok) 
+    {
 		ts3Functions.logMessage("Error querying client ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
 		return;
 	}
-	if (clientID == myID)
-	{
-		printf("VO: We are talking.. do nothing\n", clientID); // TODO: or low volume option
-		return;
-	}
+    /* Get client channel ID */
+    uint64 channelID;
+    if (ts3Functions.getChannelOfClient(serverConnectionHandlerID, clientID, &channelID) != ERROR_ok)
+    {
+        ts3Functions.logMessage("Error querying channel ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
+        return;
+    }
+
 
 	if (status == STATUS_TALKING) {
 		printf("VO_PLUGIN: %hu starts talking\n", clientID);
-		g_voptions->process_talk(true);
+        g_voptions->process_talk(true, channelID, (uint64)clientID, (clientID == myID));
 	}
-	else {
-		printf("VO_PLUGIN: %hu stops talking\n", clientID);
-		g_voptions->process_talk(false);
+	else 
+    {
+        if (status == STATUS_NOT_TALKING)
+        {
+            printf("VO_PLUGIN: %hu stops talking\n", clientID);
+            g_voptions->process_talk(false, channelID, (uint64)clientID, (clientID == myID));
+        }
 	}
 
 
@@ -1094,16 +1104,22 @@ void ts3plugin_onAvatarUpdated(uint64 serverConnectionHandlerID, anyID clientID,
  * - selectedItemID: Channel or Client ID in the case of PLUGIN_MENU_TYPE_CHANNEL and PLUGIN_MENU_TYPE_CLIENT. 0 for PLUGIN_MENU_TYPE_GLOBAL.
  */
 void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenuType type, int menuItemID, uint64 selectedItemID) {
-	printf("PLUGIN: onMenuItemEvent: serverConnectionHandlerID=%llu, type=%d, menuItemID=%d, selectedItemID=%llu\n", (long long unsigned int)serverConnectionHandlerID, type, menuItemID, (long long unsigned int)selectedItemID);
+	printf("VO_PLUGIN: onMenuItemEvent: serverConnectionHandlerID=%llu, type=%d, menuItemID=%d, selectedItemID=%llu\n", (long long unsigned int)serverConnectionHandlerID, type, menuItemID, (long long unsigned int)selectedItemID);
 	switch(type) {
 		case PLUGIN_MENU_TYPE_GLOBAL:
 			/* Global menu item was triggered. selectedItemID is unused and set to zero. */
 			switch(menuItemID) {
 				case MENU_ID_GLOBAL_1:
-					/* Menu global 1 was triggered */
+					/* Menu global 1 Turn OFF was triggered */
+                    g_voptions->set_status(VolumeOptions::status::DISABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 1);
 					break;
 				case MENU_ID_GLOBAL_2:
-					/* Menu global 2 was triggered */
+					/* Menu global 2 Turn ON was triggered */
+                    g_voptions->set_status(VolumeOptions::status::ENABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 1);
 					break;
 				default:
 					break;
@@ -1113,10 +1129,16 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			/* Channel contextmenu item was triggered. selectedItemID is the channelID of the selected channel */
 			switch(menuItemID) {
 				case MENU_ID_CHANNEL_1:
-					/* Menu channel 1 was triggered */
+                    /* Menu channel 1 Omit was triggered */
+                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::DISABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 1);
 					break;
 				case MENU_ID_CHANNEL_2:
-					/* Menu channel 2 was triggered */
+					/* Menu channel 2 Count was triggered */
+                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::ENABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 1);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 0);
 					break;
 				case MENU_ID_CHANNEL_3:
 					/* Menu channel 3 was triggered */
@@ -1129,10 +1151,16 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			/* Client contextmenu item was triggered. selectedItemID is the clientID of the selected client */
 			switch(menuItemID) {
 				case MENU_ID_CLIENT_1:
-					/* Menu client 1 was triggered */
+                    /* Menu client 1 Omit client was triggered */
+                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::DISABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 1);
 					break;
 				case MENU_ID_CLIENT_2:
-					/* Menu client 2 was triggered */
+					/* Menu client 2 Count client was triggered */
+                    g_voptions->set_client_status(selectedItemID, VolumeOptions::status::ENABLED);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 1);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 0);
 					break;
 				default:
 					break;
@@ -1145,7 +1173,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 
 /* This function is called if a plugin hotkey was pressed. Omit if hotkeys are unused. */
 void ts3plugin_onHotkeyEvent(const char* keyword) {
-	printf("PLUGIN: Hotkey event: %s\n", keyword);
+	printf("VO_PLUGIN: Hotkey event: %s\n", keyword);
 	/* Identify the hotkey by keyword ("keyword_1", "keyword_2" or "keyword_3" in this example) and handle here... */
 }
 
