@@ -39,6 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 
+#include<boost/tokenizer.hpp>
+#include <boost/algorithm/string.hpp>
+
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
 
@@ -64,7 +67,7 @@ std::string wstring_to_utf8(const std::wstring& str)
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
 
-VolumeOptions::VolumeOptions(const volume_options_settings& settings, const std::string &sconfigPath)
+VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath)
     : m_quiet(true)
     , m_status(status::ENABLED)
 {
@@ -165,21 +168,23 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "[global]\n"
         "enabled = 1\n"
         "\n"
-        "# from 0.0 to 1.0\n"
+        "# from 0.0 to 1.0 default 0.5(50%)\n"
         "vol_reduction = 0.5\n"
         "\n"
-        "# as milliseconds\n"
+        "# as milliseconds default 400ms\n"
         "vol_up_delay = 400\n"
         "\n"
-        "# 0 = take vol as fixed level, 1 = take vol as %\n"
+        "# 0 = take vol as fixed level, 1 = take vol as % default 1(true)\n"
         "vol_as_percentage = 1\n"
         "\n"
-        "# recommended on \"1\" use \"0\" only in special cases\n"
+        "# recommended on \"1\" use \"0\" only in special cases default 1(true)\n"
         "change_only_active_sessions = 1\n"
         "\n"
-        "# this should be 1 always\n"
+        "# this should be 1 always default 1(true)\n"
         "exclude_own_process = 1\n"
         "\n"
+        "# change volume when we talk? default 1(true)\n"
+        "exclude_own_client = 1\n"
         "\n"
         "# excluded_pids and included_pids takes a list of process IDs\n"
         "# excluded_process and included_process takes a list of executable names or paths\n"
@@ -187,31 +192,31 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "# takes a list separated by ;\n"
         "# in case of process names, can be anything, from full path to name to search in full path\n"
         "#\n"
-        "# example:\n"
-        "# excluded_process = \"process1.exe; C:\\this\\path\\to\\my\\program; _player\"\n"
-        "# excluded_pids = 432; 5; 5832\n"
+        "# Example:\n"
+        "# excluded_process = process1.exe ; C:\\this\\path\\to\\my\\program; _player\n"
+        "# excluded_pids = 432;5; 5832\n"
         "\n"
         "# use exluded or included filters, cant use both for now.\n"
         "use_included_filter = 0\n"
         "\n"
-        "excluded_pids = \"\"\n"
-        "excluded_process = \"\"\n"
+        "excluded_pids = \n"
+        "excluded_process = \n"
         "\n"
-        "included_pids = \"\"\n"
-        "included_process = \"\"\n"
+        "included_pids = \n"
+        "included_process = \n"
         "\n"
         "\n"
         "[sessions]\n"
         "\n"
         "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
-        "#volume_list = \"mymusic.exe:0.4; firefox.exe:0.8\"\n";
+        "#volume_list = mymusic.exe:0.4; firefox.exe:0.8\n";
 }
 
 int VolumeOptions::parse_config(std::fstream& in)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    const vo::monitor_settings default_settings;
+    const vo::volume_options_settings default_settings;
 
     using boost::property_tree::ptree;
     ptree pt;
@@ -234,33 +239,39 @@ int VolumeOptions::parse_config(std::fstream& in)
 
     // AudioMonitor will validate these values when AudioMonitor::SetSettings is called
 
+    // TODO: make Global section, AudioMonitor Section, AudioSession section and TS3Plugin section
+
     // float: Global volume reduction
     m_vo_settings.monitor_settings.ses_global_settings.vol_reduction = 
-        pt.get("global.vol_reduction", default_settings.ses_global_settings.vol_reduction);
+        pt.get("global.vol_reduction", default_settings.monitor_settings.ses_global_settings.vol_reduction);
 
     // long long: Read a number using millisecond represetantion (long long) create milliseconds chrono type and assign it.
     std::chrono::milliseconds::rep _delay_milliseconds =
-        pt.get("global.vol_up_delay", default_settings.ses_global_settings.vol_up_delay.count());
+        pt.get("global.vol_up_delay", default_settings.monitor_settings.ses_global_settings.vol_up_delay.count());
     std::chrono::milliseconds delay_milliseconds(_delay_milliseconds);
     m_vo_settings.monitor_settings.ses_global_settings.vol_up_delay = delay_milliseconds;
 
     // bool: Change vol as % or fixed
     m_vo_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage = 
-        pt.get("global.vol_as_percentage", default_settings.ses_global_settings.treat_vol_as_percentage);
+        pt.get("global.vol_as_percentage", default_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage);
 
     // bool: Change vol only to active audio sessions? recommended
     m_vo_settings.monitor_settings.ses_global_settings.change_only_active_sessions = 
-        pt.get("global.change_only_active_sessions", default_settings.ses_global_settings.change_only_active_sessions);
+        pt.get("global.change_only_active_sessions", default_settings.monitor_settings.ses_global_settings.change_only_active_sessions);
 
     // bool: Dont know why but... yep..  1 enable, 0 disable
     m_vo_settings.monitor_settings.exclude_own_process = 
-        pt.get("global.exclude_own_process", default_settings.exclude_own_process);
+        pt.get("global.exclude_own_process", default_settings.monitor_settings.exclude_own_process);
+
+    // bool: do we exclude ourselfs?
+    m_vo_settings.exclude_own_client =
+        pt.get("global.exclude_own_client", default_settings.exclude_own_client);
         
     std::string pid_list;
     std::string process_list;
 
     // bool: Cant use both filters.
-    int use_included_filter = pt.get("global.use_included_filter", default_settings.use_included_filter);
+    int use_included_filter = pt.get("global.use_included_filter", default_settings.monitor_settings.use_included_filter);
 
     if (use_included_filter)
     {
@@ -273,7 +284,36 @@ int VolumeOptions::parse_config(std::fstream& in)
         process_list = pt.get("global.excluded_process", "");
     }
     
-    // TODO parse these string..
+    // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
+    boost::char_separator<char> sep(";");
+    boost::tokenizer<boost::char_separator<char>> processtokens(process_list, sep);
+    boost::tokenizer<boost::char_separator<char>> pidtokens(process_list, sep);
+    for (auto it = processtokens.begin(); it != processtokens.end(); ++it)
+    {
+        std::string pname(*it);
+        boost::algorithm::trim(pname);
+        if (use_included_filter)
+            m_vo_settings.monitor_settings.included_process.insert(utf8_to_wstring(pname));
+        else
+            m_vo_settings.monitor_settings.excluded_process.insert(utf8_to_wstring(pname));
+    }
+    for (auto it = pidtokens.begin(); it != pidtokens.end(); ++it)
+    {
+        try
+        {
+            std::string spid(*it);
+            boost::algorithm::trim(spid);
+            if (use_included_filter)
+                m_vo_settings.monitor_settings.included_pids.insert(std::stoi(spid));
+            else
+                m_vo_settings.monitor_settings.excluded_pids.insert(std::stoi(spid));
+        }
+        catch (std::invalid_argument) // std::stoi TODO: report it to log
+        { }
+        catch (std::out_of_range) // std::stoi TODO: report it to log
+        { }
+    }
+
 
 #ifdef _DEBUG
     printf("\n\n\n\n");
@@ -289,7 +329,7 @@ int VolumeOptions::parse_config(std::fstream& in)
     return 1;
 }
 
-void VolumeOptions::set_settings(volume_options_settings& settings)
+void VolumeOptions::set_settings(vo::volume_options_settings& settings)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -374,7 +414,7 @@ void VolumeOptions::set_client_status(unsigned __int64 channelID, status s)
     }
 }
 
-volume_options_settings VolumeOptions::get_current_settings() const
+vo::volume_options_settings VolumeOptions::get_current_settings() const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -389,7 +429,7 @@ int VolumeOptions::process_talk(const bool talk_status, unsigned __int64 channel
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // if this is mighty ourselfs talking, ignore?
-    if ((ownclient) && (m_vo_settings.excude_own_client))
+    if ((ownclient) && (m_vo_settings.exclude_own_client))
     {
         printf("VO_PLUGIN: We are talking.. do nothing\n", clientID);
         return r;

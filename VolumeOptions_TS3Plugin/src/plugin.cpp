@@ -810,7 +810,7 @@ int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetM
 
 void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int status, int isReceivedWhisper, anyID clientID) 
 {
-    /* Skip own client TODO: move this to other less called function and make it global per server. */
+    /* Get own client TODO: move this to other less called function and make it global per server. */
 	anyID myID;
 	if (ts3Functions.getClientID(serverConnectionHandlerID, &myID) != ERROR_ok) 
     {

@@ -60,11 +60,7 @@ namespace vo {
     {
         monitor_settings()
             : exclude_own_process(true)
-         //   , vol_reduction(0.5f)
             , use_included_filter(false)
-          //  , treat_vol_as_percentage(true)
-           // , change_only_active_sessions(true)
-           // , vol_up_delay(700)
         {}
 
         std::set<unsigned long> excluded_pids;		// process id blacklist
@@ -78,14 +74,20 @@ namespace vo {
         std::map<std::wstring, session_settings> ses_individual_settings; // TODO
 
         session_settings ses_global_settings;
-
-        // Session settings
-        //bool change_only_active_sessions;
-        //bool treat_vol_as_percentage;
-        //float vol_reduction; // 0.0 to 1.0
-       // std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
     };
 
+    struct volume_options_settings
+    {
+        volume_options_settings()
+            : exclude_own_client(true)
+        {}
+
+        // TODO: remove monitor_settings and make vol_reduction shortcuts
+        vo::monitor_settings monitor_settings;
+
+        // add extra settings for your inteface.
+        bool exclude_own_client;
+    };
 
 }
 #endif

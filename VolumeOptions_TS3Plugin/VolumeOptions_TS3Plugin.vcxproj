@@ -154,7 +154,6 @@
     <ClCompile Include="src\sound_windows.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="resource.h" />
     <ClInclude Include="resources\version_res.h" />
     <ClInclude Include="ts3client\clientlib_publicdefinitions.h" />
     <ClInclude Include="ts3client\plugin_definitions.h" />

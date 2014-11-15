@@ -7,7 +7,7 @@
 int main2(int argc, char* argv[])
 {
 
-    volume_options_settings settings;
+    vo::volume_options_settings settings;
     
     // fill settings, you can change them anytime
     settings.monitor_settings.ses_global_settings.vol_reduction = 0.5f;
