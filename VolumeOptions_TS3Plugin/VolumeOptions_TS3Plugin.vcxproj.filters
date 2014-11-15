@@ -68,6 +68,9 @@
     <ClInclude Include="resources\version_res.h">
       <Filter>Resource Files</Filter>
     </ClInclude>
+    <ClInclude Include="volumeoptions\vo_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resources\version_res.rc">
