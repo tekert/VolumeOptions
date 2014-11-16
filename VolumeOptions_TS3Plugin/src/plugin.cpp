@@ -21,6 +21,7 @@
 #include "../ts3client/public_rare_definitions.h"
 #include "../ts3client/ts3_functions.h"
 #include "../volumeoptions/plugin.h"
+#include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;
 static VolumeOptions* g_voptions; // our plugin main class
@@ -80,7 +81,7 @@ const char* ts3plugin_name() {
 
 /* Plugin version */
 const char* ts3plugin_version() {
-    return "0.7.318";
+    return VO_VERSION_RELEASE_STR;
 }
 
 /* Plugin API version. Must be the same as the clients API major version, else the plugin fails to load. */
