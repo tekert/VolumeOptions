@@ -28,6 +28,7 @@ Currently in development phase for later integrating it on Team Speak 3 and othe
 
 ####Build:
 Edit vo_paths.props with the path to boost includes, 32 and 64 path libraries.
+
 Launch solution and simply build. (boost::system is statically linked)
 
 ####Use:
@@ -36,9 +37,11 @@ Launch solution and simply build. (boost::system is statically linked)
 Class VolumeOptions in *sound_plugin.h* is the plugin class interface, can be addapted to other software. Current header is an example for team speak 3 client plugin.
 
 Options for:  (in progress)
+
 Monitor:
 * Exclude or Include process names to monitor.
 * Exclude or include own process.
+
 Sessions:
 * Change volume only in active audio sessions or not.
 * Change volume by % or by fixed level.
