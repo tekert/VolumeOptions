@@ -87,8 +87,8 @@ private:
 };
 
 // C++11 Standard conversions
-std::wstring utf8_to_wstring(const std::string& str);
-std::string wstring_to_utf8(const std::wstring& str);
+inline std::wstring utf8_to_wstring(const std::string& str);
+inline std::string wstring_to_utf8(const std::wstring& str);
 
 
 
