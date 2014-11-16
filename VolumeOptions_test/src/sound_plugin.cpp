@@ -465,7 +465,7 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
     {
         if ((m_status == status::ENABLED) &&
             (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
-            (m_disabled_clients.find(channelID) == m_disabled_clients.end()))
+            (m_disabled_clients.find(clientID) == m_disabled_clients.end()))
         {
             printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
             r = m_paudio_monitor->Pause();
@@ -480,7 +480,7 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
         {
             if ((m_status == status::ENABLED) &&
                 (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
-                (m_disabled_clients.find(channelID) == m_disabled_clients.end()))
+                (m_disabled_clients.find(clientID) == m_disabled_clients.end()))
             {
                 printf("VO_PLUGIN: Monitoring Sessions Active.\n");
                 r = m_paudio_monitor->Start();

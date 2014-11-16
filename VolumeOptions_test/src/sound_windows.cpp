@@ -956,7 +956,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             //		2. Volume is changed
             //		3. Monitor is started/resumed (AudioMonitor)
             //		4. A session is removed from container. (AudioMonitor)
-            // to free AudioSession destructor.
+            //          to free AudioSession destructor.
             // NOTE: dont stop timers, delete or replace them to cancel timer.
             // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
             m_AudioMonitor.m_pending_restores[this] =
@@ -981,7 +981,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             //		1. Callback is completed before return.
             //		2. Volume is changed
             //		3. A session is removed from container. (AudioMonitor)
-            // to free AudioSession destructor.
+            //          to free AudioSession destructor.
             // NOTE: dont stop timers, delete or replace them to cancel timer.
             m_AudioMonitor.m_pending_restores[this] = std::move(delay_timer);
 
@@ -1008,7 +1008,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
 }
 
 /*
-    Directly Aplies volume on session
+    Forces volume on session
 */
 void AudioSession::ChangeVolume(const float v)
 {
