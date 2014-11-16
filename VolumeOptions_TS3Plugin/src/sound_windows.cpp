@@ -1207,6 +1207,7 @@ HRESULT AudioMonitor::CreateSessionManager()
     IMMDevice* pDevice = NULL;
     IMMDeviceEnumerator* pEnumerator = NULL;
 
+    // Check if not already called.
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     if (hr == S_FALSE)
@@ -1623,7 +1624,10 @@ long AudioMonitor::Stop()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Stop() Already Stopped .... \n\n");
             return 0;
+        }
 
         // Global class flag , volume reduction inactive
         m_auto_change_volume_flag = false;
@@ -1739,9 +1743,15 @@ long AudioMonitor::Pause()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Pause() Monitor already Stopped .... \n\n");
             return 0;
+        }
         if (m_current_status == AudioMonitor::monitor_status_t::PAUSED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Pause() Monitor already Paused .... \n\n");
             return 0;
+        }
 
         // Global class flag , volume reduction inactive
         m_auto_change_volume_flag = false;
@@ -1786,7 +1796,10 @@ long AudioMonitor::Start()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::RUNNING)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Start() Monitor already Running .... \n\n");
             return 0;
+        }
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
         {

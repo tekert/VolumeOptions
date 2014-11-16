@@ -42,14 +42,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 //TODO: do we really need this macro? was originaly for vista support but...
-#define VO_ENABLE_EVENTS 
+#define VO_ENABLE_EVENTS
 
-#ifndef _DEBUG
-#define dprintf(...)
-#define dwprintf(...)
+// TODO: i dont like boost::log, too many dependacies for a logger, ill do it myself maybe.
+#ifdef _DEBUG
+#define PRINT_LOG 1
 #else
+#define PRINT_LOG 0
+#endif
+
+#ifdef PRINT_LOG
+#if PRINT_LOG
 #define dprintf(...) printf(__VA_ARGS__)
 #define dwprintf(...) wprintf(__VA_ARGS__)
+#else
+#define dprintf(...)
+#define dwprintf(...)
+#endif
 #endif
 
 

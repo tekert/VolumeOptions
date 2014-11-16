@@ -308,9 +308,9 @@ int VolumeOptions::parse_config(std::fstream& in)
             else
                 m_vo_settings.monitor_settings.excluded_pids.insert(std::stoi(spid));
         }
-        catch (std::invalid_argument) // std::stoi TODO: report it to log
+        catch (std::invalid_argument) // std::stoi TODO: return something to report it to log
         { }
-        catch (std::out_of_range) // std::stoi TODO: report it to log
+        catch (std::out_of_range) // std::stoi TODO: return something to report it to log
         { }
     }
 
@@ -340,7 +340,7 @@ float VolumeOptions::get_global_volume_reduction() const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    // gets the global vol reduction. (exclude per app)
+    // gets the global vol reduction.
     return m_paudio_monitor->GetVolumeReductionLevel();
 }
 
@@ -368,21 +368,15 @@ void VolumeOptions::set_status(status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
+    printf("VO_PLUGIN: VO Status: %s", s == status::DISABLED ? "Disabled" : "Enabled");
     m_status = s;
-    switch (s)
-    {
-        case status::DISABLED:
-            m_paudio_monitor->Stop();
-            break;
-        case status::ENABLED:
-            m_paudio_monitor->Start();
-            break;
-    }
 }
 
-void VolumeOptions::set_channel_status(unsigned __int64 channelID, status s)
+void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    printf("VO_PLUGIN: Channel %llu Status: %s", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     if (s == status::DISABLED)
     {
@@ -397,9 +391,11 @@ void VolumeOptions::set_channel_status(unsigned __int64 channelID, status s)
     }
 }
 
-void VolumeOptions::set_client_status(unsigned __int64 channelID, status s)
+void VolumeOptions::set_client_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    printf("VO_PLUGIN: Client %llu Status: %s", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     if (s == status::DISABLED)
     {
@@ -421,7 +417,7 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     return m_vo_settings;
 }
 
-int VolumeOptions::process_talk(const bool talk_status, unsigned __int64 channelID, unsigned __int64 clientID,
+int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
         bool ownclient)
 {
     int r = 1;

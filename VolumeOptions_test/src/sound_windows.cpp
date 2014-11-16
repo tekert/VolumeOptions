@@ -1051,7 +1051,7 @@ void AudioSession::set_time_active_since()
 
 
 AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
-    : m_current_status(INITERROR)
+    : m_current_status(STOPPED)
     , m_auto_change_volume_flag(false)
     , m_settings(settings)
     , m_pSessionEvents(NULL)
@@ -1064,16 +1064,18 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
 {
     HRESULT hr = S_OK;
 
-    m_processid = GetCurrentProcessId();
-
-    SetSettings(m_settings);
-
     // Initialize unique GUID for own events if not already created.
     //if (IsEqualGUID(GUID_VO_CONTEXT_EVENT_ZERO, GUID_VO_CONTEXT_EVENT))
     //CHECK_HR(hr = CoCreateGuid(&GUID_VO_CONTEXT_EVENT));
 
-    m_io.reset(new boost::asio::io_service);
+    m_processid = GetCurrentProcessId();
 
+    SetSettings(m_settings);
+
+    // Start thread after pre init is complete.
+    // m_current_status flag will be set to ok when thread is running.
+    m_current_status = AudioMonitor::INITERROR; 
+    m_io.reset(new boost::asio::io_service);
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
     dprintf("AudioMonitor init complete\n");
@@ -1102,6 +1104,7 @@ AudioMonitor::~AudioMonitor()
     Simple get for asio io_service of AudioMonitor
 
     In case we need to queue calls from other places.
+    Warning: When class is destroyed, user will have to reset this pointer, is no longer useful.
 */
 std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io()
 {
@@ -1111,7 +1114,7 @@ std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io()
 /*
     Poll for new calls on current thread
 
-    When events are enabled this is the only way to garantize what msdn says
+    When events are enabled this is the only way to guarantee what msdn says
     We do this using async calls from callbacks threads to this one.
     It locks the mutex so no other thread can access the class while polling.
 */
@@ -1154,7 +1157,6 @@ void AudioMonitor::poll()
 
         stop_loop = m_abort;
     }
-
 }
 
 /*
@@ -1602,7 +1604,7 @@ void AudioMonitor::DeleteSession(std::shared_ptr<AudioSession> spAudioSession)
 
     First we stop events so new sessions cant come in
     Then we set volume change flag to false
-    Finaly we delete all sessions restoring default volume.
+    Finaly we delete all sessions, restoring default volume.
     Now the class is at clean state ready for shutdown or new start.
 
     TODO: error codes
@@ -1624,7 +1626,10 @@ long AudioMonitor::Stop()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Stop() Monitor already Stopped .... \n");
             return 0;
+        }
 
         // Global class flag , volume reduction inactive
         m_auto_change_volume_flag = false;
@@ -1740,9 +1745,15 @@ long AudioMonitor::Pause()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Pause() Monitor already Stopped .... \n");
             return 0;
+        }
         if (m_current_status == AudioMonitor::monitor_status_t::PAUSED)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Pause() Monitor already Paused .... \n");
             return 0;
+        }
 
         // Global class flag , volume reduction inactive
         m_auto_change_volume_flag = false;
@@ -1769,7 +1780,7 @@ long AudioMonitor::Pause()
         auto_change_volume_flag indicates on class level if we are currently
         changing volume or not, if its false it means AudioSession::ApplyVolumeSettings
         will have no effect and all sessions will be at default level.
-    If not, it means we are changing volume based on session activity.
+    If not, it means we are monitoring volume activity.
 */
 long AudioMonitor::Start()
 {
@@ -1787,7 +1798,10 @@ long AudioMonitor::Start()
             return -1;
 
         if (m_current_status == AudioMonitor::monitor_status_t::RUNNING)
+        {
+            dwprintf(L"\n\t ---- AudioMonitor::Start() Monitor already Running .... \n");
             return 0;
+        }
 
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
         {
@@ -1821,6 +1835,9 @@ long AudioMonitor::Start()
     return static_cast<long>(ret); // TODO: error codes
 }
 
+/*
+    Simple thread safe proxy, see AudioMonitor::Refresh for more info.
+*/
 long AudioMonitor::Refresh()
 {
     HRESULT ret = S_OK;
@@ -1843,6 +1860,9 @@ long AudioMonitor::Refresh()
     return static_cast<long>(ret); // TODO: error codes
 }
 
+/*
+    Gets current config
+*/
 vo::monitor_settings AudioMonitor::GetSettings()
 {
     vo::monitor_settings ret;
@@ -1861,6 +1881,12 @@ vo::monitor_settings AudioMonitor::GetSettings()
     return ret;
 }
 
+/*
+    Parses new config and applies it.
+
+    If parameters are incorrect we try to correct them.
+    Finally parameter settings will be modified with actual settings applied.
+*/
 void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 {
     std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
@@ -1902,7 +1928,10 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
                 m_settings.ses_global_settings.vol_reduction = 1.0f;
         }
 
-        // TODO: complete when adding options
+        // TODO: complete here when adding options
+        assert(sizeof(settings) != 114); // a reminder, read todo.
+
+
 
 
         ApplySettings();

@@ -3,7 +3,7 @@ volumeoptions code explanation
 ==============================
 
 :Author: Paul Dolcet, tekert@gmail.com
-:Version: 0.6.x
+:Version: 0.7.x
 
 .. contents:: Table of contents
   :terminology
@@ -56,7 +56,7 @@ high level map:
 	|SessionEventsCallback|                            |
 	+---------------------+                            |
                                                      |
-                            +--------------+         | Only on instance.
+                            +--------------+         | Only one instance.
                             | AudioMonitor |<--------+
                             +--------------+  
                                    |
