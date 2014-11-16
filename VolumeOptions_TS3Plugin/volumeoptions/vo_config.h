@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 //TODO: do we really need this macro? was originaly for vista support but...
-#define VO_ENABLE_EVENTS 
+#define VO_ENABLE_EVENTS
 
 // TODO: i dont like boost::log, too many dependacies for a logger, ill do it myself maybe.
 #ifdef _DEBUG

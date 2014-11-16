@@ -35,13 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stack>
 #include <mutex>
 
+#include "stdint.h"
+
 #ifdef _WIN32
 #include "sounds_windows.h"
 #include "vo_settings.h"
 #endif
-
-
-
 
 // Client Interface for Team Speak 3
 class VolumeOptions
@@ -54,7 +53,7 @@ public:
     enum status { DISABLED = 0, ENABLED};
 
     // talk status, true if talking, false if not talking anymore. optional ownclient = true if we are talking
-    int process_talk(const bool talk_status, unsigned __int64 channelID, unsigned __int64 clientID,
+    int process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
         bool ownclient = false);
 
     vo::volume_options_settings get_current_settings() const; // TODO: minimize copies
@@ -64,8 +63,8 @@ public:
     float get_global_volume_reduction() const;
     void reset_data(); /* not used*/
     void set_status(status s);
-    void set_channel_status(unsigned __int64 selectedItemID, status s);
-    void set_client_status(unsigned __int64 channelID, status s);
+    void set_channel_status(uint64_t selectedItemID, status s);
+    void set_client_status(uint64_t channelID, status s);
 
 private:
 
@@ -75,8 +74,8 @@ private:
     std::shared_ptr<AudioMonitor> m_paudio_monitor;
 
     vo::volume_options_settings m_vo_settings;
-    std::unordered_map<unsigned __int64, bool> m_disabled_channels;
-    std::unordered_map<unsigned __int64, bool> m_disabled_clients;
+    std::unordered_map<uint64_t, bool> m_disabled_channels;
+    std::unordered_map<uint64_t, bool> m_disabled_clients;
 
     status m_status;
 

@@ -368,7 +368,7 @@ void VolumeOptions::set_status(status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: VO Status: %s", s == status::DISABLED ? "Disabled" : "Enabled");
+    printf("VO_PLUGIN: VO Status: %s\n", s == status::DISABLED ? "Disabled" : "Enabled");
     m_status = s;
 }
 
@@ -376,7 +376,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Channel %llu Status: %s", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+    printf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     if (s == status::DISABLED)
     {
@@ -395,7 +395,7 @@ void VolumeOptions::set_client_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Client %llu Status: %s", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+    printf("VO_PLUGIN: Client %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     if (s == status::DISABLED)
     {
