@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 
-#include<boost/tokenizer.hpp>
+#include <boost/tokenizer.hpp>
 #include <boost/algorithm/string.hpp>
 
 #include "../volumeoptions/vo_config.h"
@@ -49,14 +49,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*  Utilities	*/
 
 // convert UTF-8 string to wstring
-std::wstring utf8_to_wstring(const std::string& str)
+inline std::wstring utf8_to_wstring(const std::string& str)
 {
     std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
     return myconv.from_bytes(str);
 }
 
 // convert wstring to UTF-8 string
-std::string wstring_to_utf8(const std::wstring& str)
+inline std::string wstring_to_utf8(const std::wstring& str)
 {
     std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
     return myconv.to_bytes(str);
@@ -364,12 +364,21 @@ void VolumeOptions::reset_data() // TODO: uhm
     VolumeOptions::restore_default_volume();
 }
 
-void VolumeOptions::set_status(status s)
+void VolumeOptions::set_status(status newstatus)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: VO Status: %s\n", s == status::DISABLED ? "Disabled" : "Enabled");
-    m_status = s;
+    printf("VO_PLUGIN: VO Status: %s\n", newstatus == status::DISABLED ? "Disabled" : "Enabled");
+
+    // Reenable AudioMonitor only if current channel/s is not quiet.
+    if (!m_quiet && (newstatus == status::ENABLED) && (m_status == status::DISABLED))
+        m_paudio_monitor->Start();
+
+    // Stop AudioMonitor only if current channel/s is not quiet.
+    if (!m_quiet && (newstatus == status::DISABLED) && (m_status == status::ENABLED))
+        m_paudio_monitor->Stop();
+
+    m_status = newstatus;
 }
 
 void VolumeOptions::set_channel_status(uint64_t channelID, status s)
@@ -391,22 +400,22 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
     }
 }
 
-void VolumeOptions::set_client_status(uint64_t channelID, status s)
+void VolumeOptions::set_client_status(uint64_t clientID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Client %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+    printf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     if (s == status::DISABLED)
     {
-        if (m_disabled_clients.find(channelID) == m_disabled_clients.end())
+        if (m_disabled_clients.find(clientID) == m_disabled_clients.end())
         {
-            m_disabled_clients[channelID] = true;
+            m_disabled_clients[clientID] = true;
         }
     }
     if (s == status::ENABLED)
     {
-        m_disabled_clients.erase(channelID);
+        m_disabled_clients.erase(clientID);
     }
 }
 
@@ -417,6 +426,9 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     return m_vo_settings;
 }
 
+/*
+    Handler for TS3 onTalkStatusChangeEvent
+*/
 int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
         bool ownclient)
 {
@@ -454,7 +466,7 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
         m_quiet = true;
     }
 
-    // if someone talked while the channel was quiet, redudce volume (else was already lowered)
+    // if someone talked while the channel was quiet, reduce volume (else was already lowered)
     if (!m_calls.empty() && m_quiet)
     {
         if ((m_status == status::ENABLED) &&

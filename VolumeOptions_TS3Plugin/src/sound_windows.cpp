@@ -145,27 +145,13 @@ namespace
     /* perfect forwarding,  rvalue references */
 #ifdef COMPILER_SUPPORT_VARIADIC_TEMPLATES
 
-    template <typename dt, typename ft, typename... pt>
-    inline
-    std::unique_ptr<boost::asio::steady_timer>
-        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
-        dt&& tdelay, ft&& f, pt&&... args)
-    {
-        std::unique_ptr<boost::asio::steady_timer> delay_timer =
-            std::make_unique<boost::asio::steady_timer>(*io, std::forward<dt>(tdelay));
-        delay_timer->async_wait(std::bind(std::forward<ft>(f), std::forward<pt>(args)...));
-        return std::move(delay_timer);
-    }
-
     template <typename ft, typename... pt>
-    inline
     void ASYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
     {
         io->post(std::bind(std::forward<ft>(f), std::forward<pt>(args)...));
     }
 
     template <typename ft, typename... pt>
-    inline
     void SYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
     {
         bool done = false;
@@ -178,7 +164,6 @@ namespace
     }
 
     template <typename rt, typename ft, typename... pt>
-    inline
     rt SYNC_CALL_RET(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
     {
         bool done = false;
@@ -190,6 +175,18 @@ namespace
         while (!done) { cond.wait(l); };
         l.unlock();
         return r;
+    }
+
+    // ASYNC_CALL_DELAY Not used
+    template <typename dt, typename ft, typename... pt>
+        std::unique_ptr<boost::asio::steady_timer>
+        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
+        dt&& tdelay, ft&& f, pt&&... args)
+    {
+        std::unique_ptr<boost::asio::steady_timer> delay_timer =
+            std::make_unique<boost::asio::steady_timer>(*io, std::forward<dt>(tdelay));
+        delay_timer->async_wait(std::bind(std::forward<ft>(f), std::forward<pt>(args)...));
+        return std::move(delay_timer);
     }
 
 #else // TODO use this in code ifndef
@@ -1963,7 +1960,7 @@ float AudioMonitor::GetVolumeReductionLevel()
     return ret;
 }
 
-AudioMonitor::monitor_status_t AudioMonitor::GetStatus()
+auto AudioMonitor::GetStatus() -> monitor_status_t
 {
     monitor_status_t ret;
 
