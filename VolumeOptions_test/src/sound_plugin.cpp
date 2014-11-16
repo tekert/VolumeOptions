@@ -70,6 +70,7 @@ inline std::string wstring_to_utf8(const std::wstring& str)
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath)
     : m_quiet(true)
     , m_status(status::ENABLED)
+    , m_we_are_talking(false)
 {
     // Parse your settings, monitor_settings are parsed when aplying to monitor.
     m_vo_settings = settings;
@@ -333,6 +334,7 @@ void VolumeOptions::set_settings(vo::volume_options_settings& settings)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
+    // monitor_settings will be parsed, applied and updated with actual settings applied.
     m_paudio_monitor->SetSettings(settings.monitor_settings);
 }
 
@@ -430,27 +432,33 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     Handler for TS3 onTalkStatusChangeEvent
 */
 int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
-        bool ownclient)
+    bool ownclient)
 {
     int r = 1;
 
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    // if this is mighty ourselfs talking, ignore?
-    if ((ownclient) && (m_vo_settings.exclude_own_client))
+    // if this is mighty ourselfs talking, ignore after we stop talking to update the stack.
+    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_we_are_talking)
     {
-        printf("VO_PLUGIN: We are talking.. do nothing\n", clientID);
+        printf("VO_PLUGIN: We are talking.. do nothing\n");
         return r;
     }
 
     // Count the number os users currently talking using a stack.
     // NOTE: we asume TS3Client always sends events in logical order per client
     if (talk_status)
-        m_calls.push(1);
+    {
+        m_calls.push(true);
+        if (ownclient) m_we_are_talking = true;
+    }
     else
+    {
         m_calls.pop();
+        if (ownclient) m_we_are_talking = false;
+    }
 
-    printf("VO_PLUGIN: Update Users currently talking: %d\n", m_calls.size());
+    printf("VO_PLUGIN: Update Users currently talking: %llu\n", m_calls.size());
 
     // if last client stoped talking, restore sounds.
     if (m_calls.empty())
@@ -459,24 +467,26 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
             (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
             (m_disabled_clients.find(channelID) == m_disabled_clients.end()))
         {
-                printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
-                r = m_paudio_monitor->Pause();
-                //m_paudio_monitor->Stop();
+            printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
+            r = m_paudio_monitor->Pause();
+            //m_paudio_monitor->Stop();
         }
         m_quiet = true;
     }
-
-    // if someone talked while the channel was quiet, reduce volume (else was already lowered)
-    if (!m_calls.empty() && m_quiet)
+    else // someone is talking
     {
-        if ((m_status == status::ENABLED) &&
-            (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
-            (m_disabled_clients.find(channelID) == m_disabled_clients.end()))
+        // if someone talked while the channel was quiet, reduce volume (else was already lowered)
+        if (m_quiet)
         {
+            if ((m_status == status::ENABLED) &&
+                (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
+                (m_disabled_clients.find(channelID) == m_disabled_clients.end()))
+            {
                 printf("VO_PLUGIN: Monitoring Sessions Active.\n");
                 r = m_paudio_monitor->Start();
+            }
+            m_quiet = false;
         }
-        m_quiet = false;
     }
 
     return r; // TODO error codes

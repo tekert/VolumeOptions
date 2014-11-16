@@ -8,9 +8,6 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VolumeOptions_TS3Plugin", "VolumeOptions_TS3Plugin\VolumeOptions_TS3Plugin.vcxproj", "{040645CD-5E28-4663-A3C0-9444FB77CDD5}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8C5FD1E9-4630-40C4-9ADA-669192A5615A}"
-	ProjectSection(SolutionItems) = preProject
-		Performance1.psess = Performance1.psess
-	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -711,7 +711,8 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 #endif
 
 
-done:;
+done:
+    ;
 
 }
 
@@ -889,7 +890,7 @@ void AudioSession::UpdateDefaultVolume(float new_def)
         from AudioSession::RestoreVolume
 
     Is important to retain a shared_ptr so callbacks have something to call to always,
-        and we dont have to manualy hold the instance before deleting..
+        so we dont have to manualy hold the instance before deleting..
         making this clearer and safer.
 
 */
@@ -904,7 +905,7 @@ void AudioSession::RestoreHolderCallback(std::shared_ptr<AudioSession> spAudioSe
 
     if (e)
     {
-        dprintf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message());
+        dprintf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message().c_str());
         return;
     }
 
@@ -1332,7 +1333,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 
     if (e)
     {
-        dwprintf(L"ASIO Timer cancelled: %s\n", e.message().c_str());
+        dprintf("ASIO Timer cancelled: %s\n", e.message().c_str());
     }
 
     timer->expires_from_now(m_delete_expired_interval);
@@ -1505,7 +1506,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
         float last_sid_volume_fix = -1.0;
         if (m_saved_sessions.count(ws_sid))
         {
-            dwprintf(L"AudioMonitor::SaveSession - Equal SID detected bucket_size=%d\n", m_saved_sessions.count(ws_sid));
+            dprintf("AudioMonitor::SaveSession - Equal SID detected bucket_size=%ull\n", m_saved_sessions.count(ws_sid));
 
             auto range = m_saved_sessions.equal_range(ws_sid);
 

@@ -81,6 +81,7 @@ private:
 
     std::stack<bool> m_calls; // to count concurrent users talking
     bool m_quiet; // if no one is talking, this is true
+    bool m_we_are_talking; // if we are talking this is true.
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;
