@@ -123,8 +123,7 @@ private:
 
     enum resume_t { NORMAL = false, NO_DELAY = true };
     HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
-    void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession,
-        boost::system::error_code const& e = boost::system::error_code());
+    void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
 
