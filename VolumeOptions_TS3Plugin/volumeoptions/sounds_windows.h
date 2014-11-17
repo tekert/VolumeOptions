@@ -123,8 +123,7 @@ private:
 
     enum resume_t { NORMAL = false, NO_DELAY = true };
     HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
-    void RestoreHolderCallback(const std::shared_ptr<AudioSession> spAudioSession,
-        boost::system::error_code const& e = boost::system::error_code());
+    void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
 
@@ -155,12 +154,12 @@ private:
 };
 
 // TODO: maybe use a multiindex map on monitor so we have fast acces to up_delay_timer throgh another type index
-/*
-struct saved_sessions
+struct sessions
 {
-    std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
-    std::shared_ptr<AudioSession> spAudioSession;
-};*/
+    //std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
+    //std::shared_ptr<AudioSession> spAudioSession;
+};
+
 
 /*
     Represents a windows Audio Manager, that containts current audio sessions
@@ -244,6 +243,7 @@ private:
     // Sessions currently Monitored, 
     //	map of SID -> list of AudioSession pointers with unique SIID (SessionInstanceIdentifier) 
     // You could look at it as group of different SIID sessions with the same SID.
+    // note: remember to delete its corresponding session in m_pending_restores
     t_saved_sessions m_saved_sessions;
     typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 

@@ -177,7 +177,6 @@ namespace
         return r;
     }
 
-    // ASYNC_CALL_DELAY Not used
     template <typename dt, typename ft, typename... pt>
         std::unique_ptr<boost::asio::steady_timer>
         ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
@@ -270,7 +269,7 @@ namespace
     3 The client should never release the final reference on a WASAPI object during an event callback.
 
     NOTES:
-    *1 To be non blocking and thread safe using our AudioMonitor class the only safe way is to use async calls.
+    *1 To be non blocking and thread safe using our AudioMonitor class the only safe easy way is to use async calls.
     *2 Easy enough.
     *3 See AudioSession class destructor for more info about that.
 */
@@ -711,7 +710,8 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl,
 #endif
 
 
-done:;
+done:
+    ;
 
 }
 
@@ -889,12 +889,11 @@ void AudioSession::UpdateDefaultVolume(float new_def)
         from AudioSession::RestoreVolume
 
     Is important to retain a shared_ptr so callbacks have something to call to always,
-        and we dont have to manualy hold the instance before deleting..
+        so we dont have to manualy hold the instance before deleting..
         making this clearer and safer.
 
 */
-void AudioSession::RestoreHolderCallback(std::shared_ptr<AudioSession> spAudioSession,
-    boost::system::error_code const& e)
+void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 {
     if (e == boost::asio::error::operation_aborted)
     {
@@ -904,7 +903,7 @@ void AudioSession::RestoreHolderCallback(std::shared_ptr<AudioSession> spAudioSe
 
     if (e)
     {
-        dprintf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message());
+        dprintf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message().c_str());
         return;
     }
 
@@ -916,7 +915,7 @@ void AudioSession::RestoreHolderCallback(std::shared_ptr<AudioSession> spAudioSe
     // Timer Completed. Delete it.
     m_AudioMonitor.m_pending_restores.erase(this);
 
-    // ...let stored spAudioSession destroy its count now.
+    // ...let asio stored AudioSession shared_ptr destroy its count now.
 }
 
 /*
@@ -957,12 +956,12 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             //		2. Volume is changed
             //		3. Monitor is started/resumed (AudioMonitor)
             //		4. A session is removed from container. (AudioMonitor)
-            // to free AudioSession destructor.
+            //          to free AudioSession destructor.
             // NOTE: dont stop timers, delete or replace them to cancel timer.
-            // IMPORTANT: Send a shared_ptr trough async call so we have something persistent to async!
+            // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
             m_AudioMonitor.m_pending_restores[this] =
                 ASYNC_CALL_DELAY(m_AudioMonitor.m_io, m_AudioMonitor.m_settings.ses_global_settings.vol_up_delay,
-                &AudioSession::RestoreHolderCallback, this, spAudioSession, std::placeholders::_1);
+                &AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1);
 
             dprintf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
 
@@ -973,16 +972,16 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             delay_timer->expires_from_now(m_AudioMonitor.m_settings.vol_up_delay);
 #ifdef _DEBUG
             if (m_AudioMonitor.m_pending_restores.find(this) != m_AudioMonitor.m_pending_restores.end())
-                printf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
-                        "stopping old timer and replacing it... \n", getPID());
+                dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
+                    "stopping old timer and replacing it... \n", getPID());
 #endif
             // IMPORTANT: Send a shared_ptr trough async call so we have something persistent to async!
-            delay_timer->async_wait(std::bind(&AudioSession::RestoreHolderCallback, this, spAudioSession, std::placeholders::_1));
+            delay_timer->async_wait(std::bind(&AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1));
             // IMPORTANT: Delete timer from container when :
             //		1. Callback is completed before return.
             //		2. Volume is changed
             //		3. A session is removed from container. (AudioMonitor)
-            // to free AudioSession destructor.
+            //          to free AudioSession destructor.
             // NOTE: dont stop timers, delete or replace them to cancel timer.
             m_AudioMonitor.m_pending_restores[this] = std::move(delay_timer);
 
@@ -1009,7 +1008,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
 }
 
 /*
-    Directly Aplies volume on session
+    Forces volume on session
 */
 void AudioSession::ChangeVolume(const float v)
 {
@@ -1028,7 +1027,6 @@ void AudioSession::ChangeVolume(const float v)
 done:
     SAFE_RELEASE(pSimpleAudioVolume);
 }
-
 
 void AudioSession::touch()
 {
@@ -1332,7 +1330,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 
     if (e)
     {
-        dwprintf(L"ASIO Timer cancelled: %s\n", e.message().c_str());
+        dprintf("ASIO Timer cancelled: %s\n", e.message().c_str());
     }
 
     timer->expires_from_now(m_delete_expired_interval);
@@ -1505,7 +1503,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
         float last_sid_volume_fix = -1.0;
         if (m_saved_sessions.count(ws_sid))
         {
-            dwprintf(L"AudioMonitor::SaveSession - Equal SID detected bucket_size=%d\n", m_saved_sessions.count(ws_sid));
+            dprintf("AudioMonitor::SaveSession - Equal SID detected bucket_size=%llu\n", m_saved_sessions.count(ws_sid));
 
             auto range = m_saved_sessions.equal_range(ws_sid);
 
@@ -1823,8 +1821,12 @@ long AudioMonitor::Start()
         // Activate reduce volume flag and update vol reduction
         m_auto_change_volume_flag = true;
 
-        // Forces config on all sessions.
-        ApplySettings();
+        // Update all session's volume
+        for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end(); ++it)
+        {
+            assert(it->second->m_pSessionControl);
+            it->second->ApplyVolumeSettings();
+        }
 
         m_current_status = AudioMonitor::monitor_status_t::RUNNING;
     }
@@ -1925,8 +1927,8 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
                 m_settings.ses_global_settings.vol_reduction = 1.0f;
         }
 
-        // TODO: complete here when adding options
-        assert(sizeof(settings) != 114); // a reminder, read todo.
+        // TODO: complete here when adding options, if compiler with different align is used, comment this line.
+        //static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
 
 
 
@@ -1952,7 +1954,7 @@ float AudioMonitor::GetVolumeReductionLevel()
     else
     {
         if (m_current_status == AudioMonitor::monitor_status_t::INITERROR)
-            return -1;
+            return -1.0f;
 
         ret = m_settings.ses_global_settings.vol_reduction;
     }

@@ -104,10 +104,10 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_vo_settings.monitor_settings));
 
 #ifdef VO_ENABLE_EVENTS
-    m_paudio_monitor->InitEvents();
+    m_paudio_monitor->InitEvents(); // TODO: dont needed anymore after creation. analize. originaly was because we needed a shared_ptr first, and after io_service init.
 #endif
 #ifdef _DEBUG
-    m_paudio_monitor->Refresh();
+    m_paudio_monitor->Refresh(); // To debug current sessions enum quickly. not used much now.
 #endif
 
 }
@@ -128,42 +128,6 @@ void VolumeOptions::create_config_file(std::fstream& in)
         return;
 
     // INI parser cant read values with comments on the same line
-    /*
-    in <<
-        "[global]\n"
-        "enabled = 1\n"
-        "vol_reduction = 0.5                # from 0.0 to 1.0\n"
-        "vol_up_delay = 400                 # as milliseconds\n"
-        "vol_as_percentage = 1              # 0 = take vol as fixed level, 1 = take vol as %\n"
-        "change_only_active_sessions = 1    # recommended on \"1\" use \"0\" only in special cases\n"
-        "exclude_own_process = 1            # this should be 1 always\n"
-        "\n"
-        "\n"
-        "# excluded_pids and included_pids takes a list of process IDs\n"
-        "# excluded_process and included_process takes a list of executable names or paths\n"
-        "#\n"
-        "# takes a list separated by;\n"
-        "# in case of process names, can be anything, from full path to name to search in full path\n"
-        "#\n"
-        "# example:\n"
-        "# excluded_process = \"process1.exe;C:\\this\\path\\to\\my\\program;_player\"\n"
-        "# excluded_pids = 432; 5; 5832\n"
-        "\n"
-        "use_included_filter = 0            # use exluded or included filters, cant use both for now.\n"
-        "\n"
-        "excluded_pids = \"\"\n"
-        "excluded_process = \"\"\n"
-        "\n"
-        "included_pids = \"\"\n"
-        "included_process = \"\"\n"
-        "\n"
-        "\n"
-        "[sessions]\n"
-        "\n"
-        "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
-        "#volume_list = \"mymusic.exe:0.4;firefox.exe:0.8\"\n";
-        */
-
     in <<
         "[global]\n"
         "enabled = 1\n"
@@ -233,7 +197,8 @@ int VolumeOptions::parse_config(std::fstream& in)
     // Using boost property threes, for ini files we use get default-value version (no throw).
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
 
-    
+    // TODO: fill missing settings on ini file. use thow version of get.
+
     int enabled = pt.get("global.enabled", 1);
     if (!enabled) m_status = status::DISABLED;
 
