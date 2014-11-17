@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <stack>
 #include <mutex>
+#include <unordered_set>
 
 #include "stdint.h"
 
@@ -64,24 +65,31 @@ public:
     void reset_data(); /* not used*/
     void set_status(status s);
     void set_channel_status(uint64_t selectedItemID, status s);
-    void set_client_status(uint64_t channelID, status s);
+    void set_client_status(uint64_t clientID, status s);
 
 private:
 
     void create_config_file(std::fstream& in);
     int parse_config(std::fstream& in);
 
+    int apply_status(); // starts or stops audio monitor based on ts3 talking statuses.
+
     std::shared_ptr<AudioMonitor> m_paudio_monitor;
 
     vo::volume_options_settings m_vo_settings;
-    std::unordered_map<uint64_t, bool> m_disabled_channels;
-    std::unordered_map<uint64_t, bool> m_disabled_clients;
+
+    // TODO: replace uint64_t with pair ServerID, uint64_t
+    std::unordered_set<uint64_t> m_clients_talking; // current total clients talking (all, including disabled)
+    std::unordered_set<uint64_t> m_disabled_clients; // clients marked as disabled
+    std::unordered_set<uint64_t> m_disabled_clients_talking; // current disabled clients talking (for optimization)
+
+    std::unordered_map<uint64_t, std::stack<bool>> m_channels_with_activity; // current channels with activity (all, including disabled)
+    std::unordered_set<uint64_t> m_disabled_channels; // channels marked as disabled
+    std::unordered_set<uint64_t> m_disabled_channels_with_activity; // current disabled channels with someone talking
 
     status m_status;
+    bool m_someone_enabled_is_talking;
 
-    std::stack<bool> m_calls; // to count concurrent users talking
-    bool m_quiet; // if no one is talking, this is true
-    bool m_we_are_talking; // if we are talking this is true.
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;

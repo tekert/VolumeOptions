@@ -1028,7 +1028,6 @@ done:
     SAFE_RELEASE(pSimpleAudioVolume);
 }
 
-
 void AudioSession::touch()
 {
     m_last_modified_on = std::chrono::steady_clock::now();
@@ -1504,7 +1503,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool un
         float last_sid_volume_fix = -1.0;
         if (m_saved_sessions.count(ws_sid))
         {
-            dprintf("AudioMonitor::SaveSession - Equal SID detected bucket_size=%ull\n", m_saved_sessions.count(ws_sid));
+            dprintf("AudioMonitor::SaveSession - Equal SID detected bucket_size=%llu\n", m_saved_sessions.count(ws_sid));
 
             auto range = m_saved_sessions.equal_range(ws_sid);
 
@@ -1929,7 +1928,7 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
         }
 
         // TODO: complete here when adding options, if compiler with different align is used, comment this line.
-        static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
+        //static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
 
 
 

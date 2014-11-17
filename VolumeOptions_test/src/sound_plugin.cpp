@@ -68,9 +68,8 @@ inline std::string wstring_to_utf8(const std::wstring& str)
 
 
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath)
-    : m_quiet(true)
+    : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
-    , m_we_are_talking(false)
 {
     // Parse your settings, monitor_settings are parsed when aplying to monitor.
     m_vo_settings = settings;
@@ -359,9 +358,9 @@ void VolumeOptions::reset_data() // TODO: uhm
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Reseting call data\n");
-    while (!m_calls.empty())
-        m_calls.pop();
+    printf("VO_PLUGIN: Reseting talk data\n");
+    while (!m_clients_talking.empty())
+        m_clients_talking.clear();
 
     VolumeOptions::restore_default_volume();
 }
@@ -372,12 +371,12 @@ void VolumeOptions::set_status(status newstatus)
 
     printf("VO_PLUGIN: VO Status: %s\n", newstatus == status::DISABLED ? "Disabled" : "Enabled");
 
-    // Reenable AudioMonitor only if current channel/s is not quiet.
-    if (!m_quiet && (newstatus == status::ENABLED) && (m_status == status::DISABLED))
+    // Reenable AudioMonitor only if someone non disabled is currently talking
+    if (m_someone_enabled_is_talking && (newstatus == status::ENABLED) && (m_status == status::DISABLED))
         m_paudio_monitor->Start();
 
-    // Stop AudioMonitor only if current channel/s is not quiet.
-    if (!m_quiet && (newstatus == status::DISABLED) && (m_status == status::ENABLED))
+    // Stop AudioMonitor only if someone non disabled is currently talking
+    if (m_someone_enabled_is_talking && (newstatus == status::DISABLED) && (m_status == status::ENABLED))
         m_paudio_monitor->Stop();
 
     m_status = newstatus;
@@ -391,15 +390,26 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 
     if (s == status::DISABLED)
     {
-        if (m_disabled_channels.find(channelID) == m_disabled_channels.end())
+        if (!m_disabled_channels.count(channelID))
         {
-            m_disabled_channels[channelID] = true;
+            m_disabled_channels.insert(channelID);
+
+            // add channel to performance set if its disabled and has activity
+            if (m_channels_with_activity.count(channelID))
+                m_disabled_channels_with_activity.insert(channelID);
         }
     }
     if (s == status::ENABLED)
     {
         m_disabled_channels.erase(channelID);
+
+        // remove channel from performance set if it was disabled and had activity
+        if (m_channels_with_activity.count(channelID))
+            m_disabled_channels_with_activity.erase(channelID);
     }
+
+    // Update statuses
+    apply_status();
 }
 
 void VolumeOptions::set_client_status(uint64_t clientID, status s)
@@ -410,15 +420,26 @@ void VolumeOptions::set_client_status(uint64_t clientID, status s)
 
     if (s == status::DISABLED)
     {
-        if (m_disabled_clients.find(clientID) == m_disabled_clients.end())
+        if (!m_disabled_clients.count(clientID))
         {
-            m_disabled_clients[clientID] = true;
+            m_disabled_clients.insert(clientID);
+
+            // if disabled client is currently talking
+            if (m_clients_talking.count(clientID))
+                m_disabled_clients_talking.insert(clientID);
         }
     }
     if (s == status::ENABLED)
     {
         m_disabled_clients.erase(clientID);
+
+        // if disabled client is currently talking
+        if (m_clients_talking.count(clientID))
+            m_disabled_clients_talking.erase(clientID);
     }
+
+    // Update statuses
+    apply_status();
 }
 
 vo::volume_options_settings VolumeOptions::get_current_settings() const
@@ -426,6 +447,61 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     return m_vo_settings;
+}
+
+/*
+    Starts or stops audio monitor based on ts3 talking statuses.
+
+    We use three sets:
+    m_clients_talking has all the clients (disabled and non disabled) currently talking.
+    m_disabled_clients has all the clients that should not affect apps volume.
+    m_disabled_clients_talking has all the disabled clients currenlty talking.
+
+    Notice we can compute 'm_disabled_clients_talking' from the other first two sets, but we need to know when
+        all the not disabled clients are quiet(not talking), and compute it every time someone talks, 
+        to increase performance we use another set with that info 'm_disabled_clients_talking'. So we can just simply
+        compare sizes: if (m_clients_talking.size() - m_disabled_clients_talking.size()) == 0 then we got it fast.
+    Same thing with channels.
+*/
+int VolumeOptions::apply_status()
+{
+    int r = 1;
+
+    // if last client non disabled stoped talking, restore sounds. 
+    // (I did it with another talking set for performance, so we dont have to search wich m_clients_talking are
+    //      disabled every time, same for channels)
+    if (m_clients_talking.empty() ||
+        (m_clients_talking.size() == m_disabled_clients_talking.size()) ||
+        (m_channels_with_activity.size() == m_disabled_channels_with_activity.size()) )
+    {
+        if (m_status == status::ENABLED)
+        {
+            if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
+            {
+                printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
+                r = m_paudio_monitor->Pause();
+                //m_paudio_monitor->Stop();
+            }
+        }
+        m_someone_enabled_is_talking = false; // excluding disabled
+    }
+    else // someone non disabled is talking
+    {
+        // if someone non disabled talked while audio monitor was down, start it
+        if (!m_someone_enabled_is_talking)
+        {
+            if (m_status == status::ENABLED)
+            {
+                if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
+                {
+                    printf("VO_PLUGIN: Monitoring Sessions Active.\n");
+                    r = m_paudio_monitor->Start();
+                }
+            }
+            m_someone_enabled_is_talking = true;
+        }
+    }
+    return r;
 }
 
 /*
@@ -438,56 +514,59 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
 
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    // if this is mighty ourselfs talking, ignore after we stop talking to update the stack.
-    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_we_are_talking)
+    // if this is mighty ourselfs talking, ignore after we stop talking to update.
+    if ((ownclient) && (m_vo_settings.exclude_own_client) && m_clients_talking.count(clientID))
     {
-        printf("VO_PLUGIN: We are talking.. do nothing\n");
+        dprintf("VO_PLUGIN: We are talking.. do nothing\n");
         return r;
     }
 
-    // Count the number os users currently talking using a stack.
-    // NOTE: we asume TS3Client always sends events in logical order per client
+    // NOTE: We assume TS3 will always send talk_status false when other clients disconnects, changes channel or etc.
+    // Lines marked with /**/ are performance sets used to search quickly wich disabled clients/channels
+    //      dont count for starting our audio change monitor see ::apply_status() for info.
     if (talk_status)
     {
-        m_calls.push(true);
-        if (ownclient) m_we_are_talking = true;
+        m_clients_talking.insert(clientID);
+
+        // If this client currently talking should not affect volume, add it to another set for performance.
+        if (m_disabled_clients.count(clientID))             /**/
+            m_disabled_clients_talking.insert(clientID);    /**/
+
+
+        // if this is the first talk activity in the channel (for performance, so we dont repeat this)
+        if (!m_channels_with_activity.count(channelID))
+        {
+            if (m_disabled_channels.count(channelID))                   /**/
+                m_disabled_channels_with_activity.insert(channelID);    /**/
+        }
+        // use a stack to count(push) the number of ppl currently talking in that channel
+        m_channels_with_activity[channelID].push(true);
     }
     else
     {
-        m_calls.pop();
-        if (ownclient) m_we_are_talking = false;
-    }
+        m_clients_talking.erase(clientID);
 
-    printf("VO_PLUGIN: Update Users currently talking: %llu\n", m_calls.size());
+        // also remove it from here if it was disabled. (we use another set for performance, see ::apply_status())
+        if (m_disabled_clients.count(clientID))             /**/
+            m_disabled_clients_talking.erase(clientID);     /**/
 
-    // if last client stoped talking, restore sounds.
-    if (m_calls.empty())
-    {
-        if ((m_status == status::ENABLED) &&
-            (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
-            (m_disabled_clients.find(clientID) == m_disabled_clients.end()))
+
+        // substract (pop) from channel count, if empty delete it.
+        m_channels_with_activity[channelID].pop();
+        if (m_channels_with_activity[channelID].empty())
         {
-            printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
-            r = m_paudio_monitor->Pause();
-            //m_paudio_monitor->Stop();
-        }
-        m_quiet = true;
-    }
-    else // someone is talking
-    {
-        // if someone talked while the channel was quiet, reduce volume (else was already lowered)
-        if (m_quiet)
-        {
-            if ((m_status == status::ENABLED) &&
-                (m_disabled_channels.find(channelID) == m_disabled_channels.end()) &&
-                (m_disabled_clients.find(clientID) == m_disabled_clients.end()))
-            {
-                printf("VO_PLUGIN: Monitoring Sessions Active.\n");
-                r = m_paudio_monitor->Start();
-            }
-            m_quiet = false;
+            m_channels_with_activity.erase(channelID);
+            if (m_disabled_channels.count(channelID))               /**/
+                m_disabled_channels_with_activity.erase(channelID); /**/
         }
     }
+
+    dprintf("VO_PLUGIN: Update: Users currently talking (including disabled): %llu\n", m_clients_talking.size());
+    dprintf("VO_PLUGIN: Update: Users currently talking (excluding disabled): %llu\n", 
+        m_clients_talking.size() - m_disabled_clients_talking.size());
+
+    // Update audio monitor status
+    apply_status();
 
     return r; // TODO error codes
 }
