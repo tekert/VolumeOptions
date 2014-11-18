@@ -480,7 +480,8 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
-    if ((ownclient) && (m_vo_settings.exclude_own_client) && m_clients_talking.count(clientID))
+    // TODO if user ignores himself well get incorrect count, fix it.
+    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking.count(clientID))
     {
         dprintf("VO_PLUGIN: We are talking.. do nothing\n");
         return r;
@@ -504,8 +505,9 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
             if (m_disabled_channels.count(channelID))                   /**/
                 m_disabled_channels_with_activity.insert(channelID);    /**/
         }
-        // use a stack to count(push) the number of ppl currently talking in that channel
-        m_channels_with_activity[channelID].push(true);
+        //
+        m_channels_with_activity[channelID].insert(clientID);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[%llu].size()= %llu\n", channelID, m_channels_with_activity[channelID].size());
     }
     else
     {
@@ -517,18 +519,28 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
 
 
         // substract (pop) from channel count, if empty delete it.
-        m_channels_with_activity[channelID].pop();
-        if (m_channels_with_activity[channelID].empty())
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[%llu].size()= %llu\n", channelID, m_channels_with_activity[channelID].size());
+        // damn TS3.. when a client is moved from a channel the talk status false has the new channel, not the old.. rewrite this fix later.
+        channelIDtype moved_from_channel_fix = channelID;
+        for (auto it : m_channels_with_activity)
         {
-            m_channels_with_activity.erase(channelID);
-            if (m_disabled_channels.count(channelID))               /**/
-                m_disabled_channels_with_activity.erase(channelID); /**/
+            if (it.second.count(clientID)) { moved_from_channel_fix = it.first; break; }
+        }
+        m_channels_with_activity[moved_from_channel_fix].erase(clientID);
+        if (m_channels_with_activity[moved_from_channel_fix].empty())
+        {
+            m_channels_with_activity.erase(moved_from_channel_fix);
+            if (m_disabled_channels.count(moved_from_channel_fix))               /**/
+                m_disabled_channels_with_activity.erase(moved_from_channel_fix); /**/
         }
     }
 
     dprintf("VO_PLUGIN: Update: Users currently talking (including disabled): %llu\n", m_clients_talking.size());
-    dprintf("VO_PLUGIN: Update: Users currently talking (excluding disabled): %llu\n", 
+    dprintf("VO_PLUGIN: Update: Users currently talking (excluding disabled): %llu\n\n", 
         m_clients_talking.size() - m_disabled_clients_talking.size());
+    dprintf("VO_PLUGIN: Update: Channels with activity (including disabled): %llu\n", m_channels_with_activity.size());
+    dprintf("VO_PLUGIN: Update: Channels with activity (excluding disabled): %llu\n\n",
+        m_channels_with_activity.size() - m_disabled_channels_with_activity.size());
 
     // Update audio monitor status
     apply_status();

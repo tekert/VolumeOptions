@@ -78,14 +78,17 @@ private:
 
     vo::volume_options_settings m_vo_settings;
 
-    // TODO: replace uint64_t with pair ServerID, uint64_t
-    std::unordered_set<uint64_t> m_clients_talking; // current total clients talking (all, including disabled)
-    std::unordered_set<uint64_t> m_disabled_clients; // clients marked as disabled
-    std::unordered_set<uint64_t> m_disabled_clients_talking; // current disabled clients talking (for optimization)
+    typedef uint64_t clientIDtype;
+    typedef uint64_t channelIDtype;
 
-    std::unordered_map<uint64_t, std::stack<bool>> m_channels_with_activity; // current channels with activity (all, including disabled)
-    std::unordered_set<uint64_t> m_disabled_channels; // channels marked as disabled
-    std::unordered_set<uint64_t> m_disabled_channels_with_activity; // current disabled channels with someone talking
+    // TODO: replace clientIDtype with pair ServerID, clientIDtype
+    std::unordered_set<clientIDtype> m_clients_talking; // current total clients talking (all, including disabled)
+    std::unordered_set<clientIDtype> m_disabled_clients; // clients marked as disabled
+    std::unordered_set<clientIDtype> m_disabled_clients_talking; // current disabled clients talking (for optimization)
+
+    std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> m_channels_with_activity; // current channels with activity (all, including disabled)
+    std::unordered_set<channelIDtype> m_disabled_channels; // channels marked as disabled
+    std::unordered_set<channelIDtype> m_disabled_channels_with_activity; // current disabled channels with someone talking
 
     status m_status;
     bool m_someone_enabled_is_talking;

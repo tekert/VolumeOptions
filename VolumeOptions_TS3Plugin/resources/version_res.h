@@ -12,25 +12,24 @@
 // "PROJECTNAME"_ are for internal use
 // VER_ are for resource use.
 
+#if defined( _WIN64 )
+#define VO_BITSFLAG "(x64)"
+#else
+#define VO_BITSFLAG "(x86)"
+#endif
+
 // ------------------------------------------------------------------------------
 
 // Mappings for final rc  use.
 
-#ifdef _WIN64
-#define BITSFLAG "(x64)"
-#else
-#define BITSFLAG "(x86)"
-#endif
-
-
-#define VER_FILE_DESCRIPTION_STR    "VO " BITSFLAG
+#define VER_FILE_DESCRIPTION_STR    "VolumeOptions Plugin for TS3 " VO_BITSFLAG
 #define VER_FILE_VERSION            VERSION_FILE
 #define VER_FILE_VERSION_STR        VERSION_FILESTR
 
-#define VER_PRODUCTNAME_STR         "VO"  BITSFLAG
+#define VER_PRODUCTNAME_STR         "VolumeOptions Plugin "  VO_BITSFLAG
 #define VER_PRODUCT_VERSION         VERSION_PRODUCT
 #define VER_PRODUCT_VERSION_STR     VERSION_PRODUCTSTR
-#define VER_ORIGINAL_FILENAME_STR   VER_PRODUCTNAME_STR ".dll"
+#define VER_ORIGINAL_FILENAME_STR   "volume_options_ts3plugin" VO_BITSFLAG ".dll"
 #define VER_INTERNAL_NAME_STR       VER_ORIGINAL_FILENAME_STR
 #define VER_COPYRIGHT_STR           "2014 Paul Dolcet tekert@gmail.com"
 
