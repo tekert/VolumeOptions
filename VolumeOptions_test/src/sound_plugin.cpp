@@ -518,20 +518,21 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
             m_disabled_clients_talking.erase(clientID);     /**/
 
 
-        // substract (pop) from channel count, if empty delete it.
+        // substract client from channel count, if empty delete it.
         dprintf("VO_PLUGIN: Update: m_channels_with_activity[%llu].size()= %llu\n", channelID, m_channels_with_activity[channelID].size());
-        // damn TS3.. when a client is moved from a channel the talk status false has the new channel, not the old.. rewrite this fix later.
-        channelIDtype moved_from_channel_fix = channelID;
-        for (auto it : m_channels_with_activity)
+        // NOTE: When a client is moved from a channel the talk status false has the new channel, not the old..
+        // SELFNOTE: maybe rewrite this. (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
+        channelIDtype channelID_corrected = channelID;
+        for (auto it : m_channels_with_activity) // low overhead, usualy a client is in as many channels as servers.
         {
-            if (it.second.count(clientID)) { moved_from_channel_fix = it.first; break; }
+            if (it.second.count(clientID)) { channelID_corrected = it.first; break; }
         }
-        m_channels_with_activity[moved_from_channel_fix].erase(clientID);
-        if (m_channels_with_activity[moved_from_channel_fix].empty())
+        m_channels_with_activity[channelID_corrected].erase(clientID);
+        if (m_channels_with_activity[channelID_corrected].empty())
         {
-            m_channels_with_activity.erase(moved_from_channel_fix);
-            if (m_disabled_channels.count(moved_from_channel_fix))               /**/
-                m_disabled_channels_with_activity.erase(moved_from_channel_fix); /**/
+            m_channels_with_activity.erase(channelID_corrected);
+            if (m_disabled_channels.count(channelID_corrected))               /**/
+                m_disabled_channels_with_activity.erase(channelID_corrected); /**/
         }
     }
 
