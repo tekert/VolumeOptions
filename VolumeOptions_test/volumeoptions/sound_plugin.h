@@ -90,18 +90,21 @@ private:
     std::unordered_set<channelIDtype> m_disabled_channels; // channels marked as disabled
     std::unordered_set<channelIDtype> m_disabled_channels_with_activity; // current disabled channels with someone talking (for optimization)
 #else
-
+    // TODO: replace clientIDtype with pair ServerID, clientIDtype
+    /* current disabled and enabled clients talking */
     std::unordered_map<status, std::unordered_set<clientIDtype>> m_clients_talking;
+    /* clients marked as disabled */
     std::unordered_set<clientIDtype> m_ignored_clients;
 
     typedef std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> channel_info;
-    std::unordered_map<status, channel_info> m_channels_with_activity; // current channels with activity //TODO use vector?
-    std::unordered_set<channelIDtype> m_ignored_channels; // channels marked as disabled
+    /* current enabled and disabled channels with activity (someone talking in it) */ //TODO use vector?
+    std::unordered_map<status, channel_info> m_channels_with_activity;
+    /* channels marked as disabled */
+    std::unordered_set<channelIDtype> m_ignored_channels;
 
 #endif
     status m_status;
     bool m_someone_enabled_is_talking;
-
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;
