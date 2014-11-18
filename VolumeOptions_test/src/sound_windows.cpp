@@ -576,7 +576,10 @@ public:
             SAFE_RELEASE(pAudioEvents);
 
             if (FAILED(hr))
+            {
+                printf("CSessionNotifications::OnSessionCreated: Error fixing events: hr = %d\n", hr);
                 return hr;
+            }
         }
 
         if (pNewSessionControl)

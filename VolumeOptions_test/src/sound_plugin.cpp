@@ -347,6 +347,8 @@ void VolumeOptions::set_status(status newstatus)
     m_status = newstatus;
 }
 
+
+#if 0
 void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -548,3 +550,230 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
 
     return r; // TODO error codes
 }
+#else
+void VolumeOptions::set_channel_status(uint64_t channelID, status s)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    printf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+
+    if (s == status::DISABLED)
+    {
+        m_ignored_channels.insert(channelID);
+
+        if (m_channels_with_activity[ENABLED].count(channelID))
+        {
+            // move it.
+            m_channels_with_activity[DISABLED][channelID] = 
+                std::move(m_channels_with_activity[ENABLED][channelID]);
+            m_channels_with_activity[ENABLED].erase(channelID);
+        }
+    }
+    if (s == status::ENABLED)
+    {
+        m_ignored_channels.erase(channelID);
+
+        if (m_channels_with_activity[DISABLED].count(channelID))
+        {
+            // move it.
+            m_channels_with_activity[ENABLED][channelID] =
+                std::move(m_channels_with_activity[DISABLED][channelID]);
+            m_channels_with_activity[DISABLED].erase(channelID);
+        }
+    }
+
+    // Update statuses
+    apply_status();
+}
+
+void VolumeOptions::set_client_status(uint64_t clientID, status s)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    printf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
+
+    if (s == status::DISABLED)
+    {
+        m_ignored_clients.insert(clientID);
+
+        if (m_clients_talking[ENABLED].count(clientID))
+        {
+            // move it.
+            m_clients_talking[ENABLED].erase(clientID);
+            m_clients_talking[DISABLED].insert(clientID);
+        }
+    }
+    if (s == status::ENABLED)
+    {
+        m_ignored_clients.erase(clientID);
+
+        if (m_clients_talking[DISABLED].count(clientID))
+        {
+            // move it.
+            m_clients_talking[DISABLED].erase(clientID);
+            m_clients_talking[ENABLED].insert(clientID);
+        }
+    }
+
+    // Update statuses
+    apply_status();
+}
+
+vo::volume_options_settings VolumeOptions::get_current_settings() const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    return m_vo_settings;
+}
+
+/*
+    Starts or stops audio monitor based on ts3 talking statuses.
+
+
+*/
+int VolumeOptions::apply_status()
+{
+    int r = 1;
+
+    // if last client non disabled stoped talking, restore sounds. 
+    if ( m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty() )
+    {
+        if (m_status == status::ENABLED)
+        {
+            if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
+            {
+                printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
+                r = m_paudio_monitor->Pause();
+                //m_paudio_monitor->Stop();
+            }
+        }
+        m_someone_enabled_is_talking = false; // excluding disabled
+    }
+    else // someone non disabled is talking
+    {
+        // if someone non disabled talked while audio monitor was down, start it
+        if (!m_someone_enabled_is_talking)
+        {
+            if (m_status == status::ENABLED)
+            {
+                if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
+                {
+                    printf("VO_PLUGIN: Monitoring Sessions Active.\n");
+                    r = m_paudio_monitor->Start();
+                }
+            }
+            m_someone_enabled_is_talking = true;
+        }
+    }
+    return r;
+}
+
+/*
+    Handler for TS3 onTalkStatusChangeEvent
+*/
+int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
+    bool ownclient)
+{
+    int r = 1;
+
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // if this is mighty ourselfs talking, ignore after we stop talking to update.
+    // TODO if user ignores himself well get incorrect count, fix it.
+    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(clientID))
+    {
+        dprintf("VO_PLUGIN: We are talking.. do nothing\n");
+        return r;
+    }
+
+    // NOTE: We assume TS3 will always send talk_status false when other clients disconnects, changes channel or etc.
+    if (talk_status)
+    {
+        if (m_ignored_clients.count(clientID))
+            m_clients_talking[DISABLED].insert(clientID);
+        else
+            m_clients_talking[ENABLED].insert(clientID);
+
+
+        if (m_ignored_channels.count(channelID))
+        {
+            m_channels_with_activity[DISABLED][channelID].insert(clientID);
+            dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%llu].size()= %llu\n", channelID, m_channels_with_activity[ENABLED][channelID].size());
+        }
+        else
+        {
+            m_channels_with_activity[ENABLED][channelID].insert(clientID);
+            dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%llu].size()= %llu\n", channelID, m_channels_with_activity[DISABLED][channelID].size());
+        }
+    }
+    else
+    {
+        // Delete them, we dont know here if cause of stop was disconnection, channel change etc
+        if (m_ignored_clients.count(clientID))
+            m_clients_talking[DISABLED].erase(clientID);
+        else
+            m_clients_talking[ENABLED].erase(clientID);
+
+
+        // Substract client from channel count, if empty delete it.
+        // TS3FIXNOTE: When a client is moved from a channel the talk status false has the new channel, not the old.. (yeah..)
+        // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
+        channelIDtype channelID_origin = channelID;
+        status channelID_origin_status;
+        if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
+        for (auto it_status : m_channels_with_activity)
+        {
+            channelID_origin_status = it_status.first;
+            for (auto it_cinfo : m_channels_with_activity[it_status.first]) // low overhead, usualy a client is in as many channels as servers.
+            {
+                if (it_cinfo.second.count(clientID)) 
+                { 
+                    channelID_origin = it_cinfo.first; 
+                    goto done; // break nested with goto
+                }
+            }
+        }
+        done:
+        // Now we got the real channel from where the client stopped talking, remove the client.
+        m_channels_with_activity[channelID_origin_status][channelID_origin].erase(clientID);
+        // if this was the last client from the channel talking delete the channel.
+        if (m_channels_with_activity[channelID_origin_status][channelID_origin].empty())
+            m_channels_with_activity[channelID_origin_status].erase(channelID_origin);
+
+#ifdef _DEBUG
+        size_t enabled_size = 0, disabled_size = 0;
+        if (m_channels_with_activity.count(ENABLED))
+        {
+            if (m_channels_with_activity[ENABLED].count(channelID))
+                enabled_size = m_channels_with_activity[ENABLED][channelID].size();
+        }
+        if (m_channels_with_activity.count(DISABLED))
+        {
+            if (m_channels_with_activity[DISABLED].count(channelID))
+                disabled_size = m_channels_with_activity[DISABLED][channelID].size();
+        }
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%llu].size()= %llu\n", channelID, enabled_size);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%llu].size()= %llu\n", channelID, disabled_size);
+#endif
+    }
+
+#ifdef _DEBUG
+    size_t enabled_size = 0, disabled_size = 0;
+    if (m_clients_talking.count(ENABLED)) enabled_size = m_clients_talking[ENABLED].size();
+    if (m_clients_talking.count(DISABLED)) disabled_size = m_clients_talking[DISABLED].size();
+    dprintf("VO_PLUGIN: Total Users currently talking (enabled): %llu\n", enabled_size);
+    dprintf("VO_PLUGIN: Total Users currently talking (disabled): %llu\n\n", disabled_size);
+
+    enabled_size = 0; disabled_size = 0;
+    if (m_channels_with_activity.count(ENABLED)) enabled_size = m_channels_with_activity[ENABLED].size();
+    if (m_channels_with_activity.count(DISABLED)) disabled_size = m_channels_with_activity[DISABLED].size();
+    dprintf("VO_PLUGIN: Total Channels with activity (enabled): %llu\n", enabled_size);
+    dprintf("VO_PLUGIN: Total Channels with activity (disabled): %llu\n\n", disabled_size);
+#endif
+
+    // Update audio monitor status
+    apply_status();
+
+    return r; // TODO error codes
+}
+#endif

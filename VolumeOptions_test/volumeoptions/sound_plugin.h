@@ -80,7 +80,7 @@ private:
 
     typedef uint64_t clientIDtype;
     typedef uint64_t channelIDtype;
-
+#if 0
     // TODO: replace clientIDtype with pair ServerID, clientIDtype
     std::unordered_set<clientIDtype> m_clients_talking; // current total clients talking (all, including disabled)
     std::unordered_set<clientIDtype> m_disabled_clients; // clients marked as disabled
@@ -88,8 +88,17 @@ private:
 
     std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> m_channels_with_activity; // current channels with activity (all, including disabled)
     std::unordered_set<channelIDtype> m_disabled_channels; // channels marked as disabled
-    std::unordered_set<channelIDtype> m_disabled_channels_with_activity; // current disabled channels with someone talking
+    std::unordered_set<channelIDtype> m_disabled_channels_with_activity; // current disabled channels with someone talking (for optimization)
+#else
 
+    std::unordered_map<status, std::unordered_set<clientIDtype>> m_clients_talking;
+    std::unordered_set<clientIDtype> m_ignored_clients;
+
+    typedef std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> channel_info;
+    std::unordered_map<status, channel_info> m_channels_with_activity; // current channels with activity //TODO use vector?
+    std::unordered_set<channelIDtype> m_ignored_channels; // channels marked as disabled
+
+#endif
     status m_status;
     bool m_someone_enabled_is_talking;
 
