@@ -43,7 +43,7 @@ namespace vo {
         session_settings()
             : change_only_active_sessions(true)
             , treat_vol_as_percentage(true)
-            , vol_up_delay(700)
+            , vol_up_delay(400)
             , vol_reduction(0.5f)
         {}
 

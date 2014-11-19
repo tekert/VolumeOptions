@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
 
-
 /*  Utilities	*/
 
 // convert UTF-8 string to wstring
@@ -89,7 +88,7 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     }
     else
     {
-        int ok = parse_config(in); // 0 on error.
+        int ok = parse_config(in, configFile); // 0 on error.
         if (!ok)
         {
             printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
@@ -132,7 +131,17 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "[global]\n"
         "enabled = 1\n"
         "\n"
-        "# from 0.0 to 1.0 default 0.5(50%)\n"
+        "\n"
+        "[plugin]\n"
+        "\n"
+        "# change volume when we talk ? default 1(true)\n"
+        "exclude_own_client = 1\n"
+        "\n"
+        "\n"
+        "\n"
+        "[AudioSessions]\n"
+        "\n"
+        "# from 0.0 to 1.0 default 0.5(50 % )\n"
         "vol_reduction = 0.5\n"
         "\n"
         "# as milliseconds default 400ms\n"
@@ -144,39 +153,60 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "# recommended on \"1\" use \"0\" only in special cases default 1(true)\n"
         "change_only_active_sessions = 1\n"
         "\n"
+        "\n"
+        "\n"
+        "[AudioMonitor]\n"
+        "\n"
         "# this should be 1 always default 1(true)\n"
         "exclude_own_process = 1\n"
-        "\n"
-        "# change volume when we talk? default 1(true)\n"
-        "exclude_own_client = 1\n"
         "\n"
         "# excluded_pids and included_pids takes a list of process IDs\n"
         "# excluded_process and included_process takes a list of executable names or paths\n"
         "#\n"
-        "# takes a list separated by ;\n"
+        "# takes a list separated by \";\"\n"
         "# in case of process names, can be anything, from full path to name to search in full path\n"
         "#\n"
         "# Example:\n"
-        "# excluded_process = process1.exe ; C:\\this\\path\\to\\my\\program; _player\n"
-        "# excluded_pids = 432;5; 5832\n"
+        "# excluded_process = process1.exe; C:\\this\\path\\to\\my\\program; _player\n"
+        "# excluded_pids = 432; 5; 5832\n"
         "\n"
         "# use exluded or included filters, cant use both for now.\n"
         "use_included_filter = 0\n"
         "\n"
-        "excluded_pids = \n"
-        "excluded_process = \n"
+        "excluded_pids =\n"
+        "excluded_process =\n"
         "\n"
-        "included_pids = \n"
-        "included_process = \n"
+        "included_pids =\n"
+        "included_process =\n"
         "\n"
-        "\n"
-        "[sessions]\n"
         "\n"
         "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
         "#volume_list = mymusic.exe:0.4; firefox.exe:0.8\n";
+
+
 }
 
-int VolumeOptions::parse_config(std::fstream& in)
+/*
+    Simple template, creates the path with default value if it doesnt exists. else returns the value.
+*/
+template <typename T>
+T ini_put_get(boost::property_tree::ptree& pt, const std::string& path, const T& default_value)
+{
+    boost::optional<T> opt = pt.get_optional<T>(path.c_str());
+    if (opt)
+    {
+        return *opt;
+    }
+    else // put missing config
+    {
+        try { pt.put(path.c_str(), default_value); }
+        catch (boost::property_tree::ptree_bad_data) { assert(false); }
+    }
+
+    return default_value;
+}
+
+int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -194,59 +224,71 @@ int VolumeOptions::parse_config(std::fstream& in)
         return 0;
     }
 
-    // Using boost property threes, for ini files we use get default-value version (no throw).
+    // settings shortcuts
+    vo::session_settings& ses_settings = m_vo_settings.monitor_settings.ses_global_settings;
+    vo::monitor_settings& mon_settings = m_vo_settings.monitor_settings;
+    const vo::session_settings& def_ses_settings = default_settings.monitor_settings.ses_global_settings;
+    const vo::monitor_settings& def_mon_settings = default_settings.monitor_settings;
+
+    // Using boost property threes, boost::optional version used to fill missing config.
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
 
-    // TODO: fill missing settings on ini file. use thow version of get.
 
-    int enabled = pt.get("global.enabled", 1);
+    int enabled = ini_put_get<int>(pt, "global.enabled", 1);
     if (!enabled) m_status = status::DISABLED;
+
+    // bool: do we exclude ourselfs?
+    m_vo_settings.exclude_own_client = ini_put_get<bool>(pt, "plugin.exclude_own_client", default_settings.exclude_own_client);
 
     // AudioMonitor will validate these values when AudioMonitor::SetSettings is called
 
-    // TODO: make Global section, AudioMonitor Section, AudioSession section and TS3Plugin section
 
     // float: Global volume reduction
-    m_vo_settings.monitor_settings.ses_global_settings.vol_reduction = 
-        pt.get("global.vol_reduction", default_settings.monitor_settings.ses_global_settings.vol_reduction);
-
+    ses_settings.vol_reduction = ini_put_get<float>(pt, "AudioSessions.vol_reduction", def_ses_settings.vol_reduction);
+   
     // long long: Read a number using millisecond represetantion (long long) create milliseconds chrono type and assign it.
-    std::chrono::milliseconds::rep _delay_milliseconds =
-        pt.get("global.vol_up_delay", default_settings.monitor_settings.ses_global_settings.vol_up_delay.count());
+    std::chrono::milliseconds::rep _delay_milliseconds;
+    _delay_milliseconds = ini_put_get<std::chrono::milliseconds::rep>(pt, "AudioSessions.vol_up_delay", def_ses_settings.vol_up_delay.count());
     std::chrono::milliseconds delay_milliseconds(_delay_milliseconds);
-    m_vo_settings.monitor_settings.ses_global_settings.vol_up_delay = delay_milliseconds;
+    ses_settings.vol_up_delay = delay_milliseconds;
 
     // bool: Change vol as % or fixed
-    m_vo_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage = 
-        pt.get("global.vol_as_percentage", default_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage);
+    ses_settings.treat_vol_as_percentage = ini_put_get<bool>(pt, "AudioSessions.vol_as_percentage", def_ses_settings.treat_vol_as_percentage);
 
     // bool: Change vol only to active audio sessions? recommended
-    m_vo_settings.monitor_settings.ses_global_settings.change_only_active_sessions = 
-        pt.get("global.change_only_active_sessions", default_settings.monitor_settings.ses_global_settings.change_only_active_sessions);
+    ses_settings.change_only_active_sessions = ini_put_get<bool>(pt, "AudioSessions.change_only_active_sessions", def_ses_settings.change_only_active_sessions);
+
 
     // bool: Dont know why but... yep..  1 enable, 0 disable
-    m_vo_settings.monitor_settings.exclude_own_process = 
-        pt.get("global.exclude_own_process", default_settings.monitor_settings.exclude_own_process);
+    mon_settings.exclude_own_process = ini_put_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    // bool: do we exclude ourselfs?
-    m_vo_settings.exclude_own_client =
-        pt.get("global.exclude_own_client", default_settings.exclude_own_client);
-        
     std::string pid_list;
     std::string process_list;
 
     // bool: Cant use both filters.
-    int use_included_filter = pt.get("global.use_included_filter", default_settings.monitor_settings.use_included_filter);
+    mon_settings.use_included_filter = ini_put_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    if (use_included_filter)
+    if (mon_settings.use_included_filter)
     {
-        pid_list = pt.get("global.included_pids", "");
-        process_list = pt.get("global.included_process", "");
+        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.included_pids", "");
+        process_list = ini_put_get<std::string>(pt, "AudioMonitor.included_process", "");
     }
     else
     {
-        pid_list = pt.get("global.excluded_pids", "");
-        process_list = pt.get("global.excluded_process", "");
+        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
+        process_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_process", "");
+    }
+            
+
+    // Update ini file if some values were missing.
+    try
+    {
+        write_ini(configFile, pt);
+    }
+    catch (boost::property_tree::ini_parser::ini_parser_error)
+    {
+        // TODO report error to ts3 log
+        assert(false);
     }
     
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
@@ -257,10 +299,10 @@ int VolumeOptions::parse_config(std::fstream& in)
     {
         std::string pname(*it);
         boost::algorithm::trim(pname);
-        if (use_included_filter)
-            m_vo_settings.monitor_settings.included_process.insert(utf8_to_wstring(pname));
+        if (mon_settings.use_included_filter)
+            mon_settings.included_process.insert(utf8_to_wstring(pname));
         else
-            m_vo_settings.monitor_settings.excluded_process.insert(utf8_to_wstring(pname));
+            mon_settings.excluded_process.insert(utf8_to_wstring(pname));
     }
     for (auto it = pidtokens.begin(); it != pidtokens.end(); ++it)
     {
@@ -268,27 +310,27 @@ int VolumeOptions::parse_config(std::fstream& in)
         {
             std::string spid(*it);
             boost::algorithm::trim(spid);
-            if (use_included_filter)
-                m_vo_settings.monitor_settings.included_pids.insert(std::stoi(spid));
+            if (mon_settings.use_included_filter)
+                mon_settings.included_pids.insert(std::stoi(spid));
             else
-                m_vo_settings.monitor_settings.excluded_pids.insert(std::stoi(spid));
+                mon_settings.excluded_pids.insert(std::stoi(spid));
         }
-        catch (std::invalid_argument) // std::stoi TODO: return something to report it to log
+        catch (std::invalid_argument) // std::stoi TODO: return something and report it to log
         { }
-        catch (std::out_of_range) // std::stoi TODO: return something to report it to log
+        catch (std::out_of_range) // std::stoi TODO: return something and report it to log
         { }
     }
 
 
 #ifdef _DEBUG
-    printf("\n\n\n\n");
+    dprintf("\n\n\n\n");
     for (auto& section : pt)
     {
         std::cout << "section.first= " << '[' << section.first << "]\n";
         for (auto& key : section.second)
             std::cout << "key.first="<< key.first << "    key.second.get_value<std::string>()=" << key.second.get_value<std::string>() << "\n";
     }
-    printf("\n\n\n\n");
+    dprintf("\n\n\n\n");
 #endif
 
     return 1;

@@ -78,7 +78,7 @@ public:
 private:
 
     void create_config_file(std::fstream& in);
-    int parse_config(std::fstream& in);
+    int parse_config(std::fstream& in, const std::string& configFile = ".");
 
     int apply_status(); // starts or stops audio monitor based on ts3 talking statuses.
 
