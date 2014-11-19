@@ -53,5 +53,5 @@ Sessions:
 * *Library development, Core 95% done* (missing per app custom vol option)
 
 #####TS3 Plugin status:
-* *TS3 plugin interface, 70% done* (missing gui config window, .ini only for now)
-* *Configuration file: 80% done.* (parsing complete, need some sintax for last option)
+* *TS3 plugin interface, 75% done* (missing gui config window, .ini only for now)
+* *Configuration file: 85% done.* (parsing complete, needs definitive syntax for last option)
