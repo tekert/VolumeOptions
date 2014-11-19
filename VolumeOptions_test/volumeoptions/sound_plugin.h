@@ -88,17 +88,8 @@ private:
 
     typedef uint64_t clientIDtype;
     typedef uint64_t channelIDtype;
-#if 0 // TODO delete this block later.
-    // TODO: replace clientIDtype with pair ServerID, clientIDtype
-    std::unordered_set<clientIDtype> m_clients_talking; // current total clients talking (all, including disabled)
-    std::unordered_set<clientIDtype> m_disabled_clients; // clients marked as disabled
-    std::unordered_set<clientIDtype> m_disabled_clients_talking; // current disabled clients talking (for optimization)
 
-    std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> m_channels_with_activity; // current channels with activity (all, including disabled)
-    std::unordered_set<channelIDtype> m_disabled_channels; // channels marked as disabled
-    std::unordered_set<channelIDtype> m_disabled_channels_with_activity; // current disabled channels with someone talking (for optimization)
-#else
-    // TODO: replace clientIDtype with pair ServerID, clientIDtype
+    // TODO: replace clientIDtype with pair ServerID, clientIDtype, same for channels
     /* current disabled and enabled clients talking */
     std::unordered_map<status, std::unordered_set<clientIDtype>> m_clients_talking;
     /* clients marked as disabled */
