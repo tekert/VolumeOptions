@@ -440,8 +440,25 @@ void ts3plugin_currentServerConnectionChanged(uint64 serverConnectionHandlerID) 
 
 /* Static title shown in the left column in the info frame */
 const char* ts3plugin_infoTitle() {
-	return "Volume reduction level: ";
+	return "VolumeOptions ";
 }
+
+/*
+ * Menu IDs for this plugin. Pass these IDs when creating a menuitem to the TS3 client. When the menu item is triggered,
+ * ts3plugin_onMenuItemEvent will be called passing the menu ID of the triggered menu item.
+ * These IDs are freely choosable by the plugin author. It's not really needed to use an enum, it just looks prettier.
+ */
+enum {
+    MENU_ID_CLIENT_IGNORED = 1,
+    MENU_ID_CLIENT_ENABLED,
+    MENU_ID_CHANNEL_IGNORED,
+    MENU_ID_CHANNEL_ENABLED,
+    MENU_ID_CHANNEL_3,
+    MENU_ID_GLOBAL_ON,
+    MENU_ID_GLOBAL_OFF,
+    MENU_ID_GLOBAL_RESET_CHANNELS,
+    MENU_ID_GLOBAL_RESET_CLIENTS
+};
 
 /*
  * Dynamic content shown in the right column in the info frame. Memory for the data string needs to be allocated in this
@@ -451,6 +468,8 @@ const char* ts3plugin_infoTitle() {
  */
 void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum PluginItemType type, char** data) {
 	char* name;
+    char vo_status[INFODATA_BUFSIZE];
+    VolumeOptions::status s;
 
 	/* For demonstration purpose, display the name of the currently selected server, channel or client. */
 	switch(type) {
@@ -459,27 +478,69 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 				printf("Error getting virtual server name\n");
 				return;
 			}
+
+            s = g_voptions->get_status();
+            snprintf(vo_status, INFODATA_BUFSIZE, "Server [u]%s[/u] status: %s[/color]",
+                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+
 			break;
+
 		case PLUGIN_CHANNEL:
 			if(ts3Functions.getChannelVariableAsString(serverConnectionHandlerID, id, CHANNEL_NAME, &name) != ERROR_ok) {
 				printf("Error getting channel name\n");
 				return;
 			}
+
+            s = g_voptions->get_channel_status(id);
+            snprintf(vo_status, INFODATA_BUFSIZE, "Channel [u]%s[/u] status: %s[/color]",
+                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+
+            if (s == VolumeOptions::DISABLED)
+            {
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 0);
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 1);
+            }
+            else
+            {
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 1);
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 0);
+            }
+
 			break;
+
 		case PLUGIN_CLIENT:
 			if(ts3Functions.getClientVariableAsString(serverConnectionHandlerID, (anyID)id, CLIENT_NICKNAME, &name) != ERROR_ok) {
 				printf("Error getting client nickname\n");
 				return;
 			}
+
+            s = g_voptions->get_client_status(id);
+            snprintf(vo_status, INFODATA_BUFSIZE, "Client [u]%s[/u] status: %s[/color]",
+                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+
+            if (s == VolumeOptions::DISABLED)
+            {
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 0);
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 1);
+            }
+            else
+            {
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 1);
+                ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
+            }
+
 			break;
+
 		default:
 			printf("Invalid item type: %d\n", type);
 			data = NULL;  /* Ignore */
 			return;
 	}
-
+    
 	*data = (char*)malloc(INFODATA_BUFSIZE * sizeof(char));  /* Must be allocated in the plugin! */
-	snprintf(*data, INFODATA_BUFSIZE, "[I]%d%%[/I]", int(g_voptions->get_global_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
+    snprintf(*data, INFODATA_BUFSIZE, "%s  [color=#B6B6CC]|[/color]  [I]%d%%[/I]",
+        vo_status, int(g_voptions->get_global_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
+    
 	ts3Functions.freeMemory(name);
 }
 
@@ -512,20 +573,7 @@ static struct PluginMenuItem* createMenuItem(enum PluginMenuType type, int id, c
 #define CREATE_MENU_ITEM(a, b, c, d) (*menuItems)[n++] = createMenuItem(a, b, c, d);
 #define END_CREATE_MENUS (*menuItems)[n++] = NULL; assert(n == sz);
 
-/*
- * Menu IDs for this plugin. Pass these IDs when creating a menuitem to the TS3 client. When the menu item is triggered,
- * ts3plugin_onMenuItemEvent will be called passing the menu ID of the triggered menu item.
- * These IDs are freely choosable by the plugin author. It's not really needed to use an enum, it just looks prettier.
- */
-enum {
-	MENU_ID_CLIENT_1 = 1,
-	MENU_ID_CLIENT_2,
-	MENU_ID_CHANNEL_1,
-	MENU_ID_CHANNEL_2,
-	MENU_ID_CHANNEL_3,
-	MENU_ID_GLOBAL_1,
-	MENU_ID_GLOBAL_2
-};
+
 
 /*
  * Initialize plugin menus.
@@ -551,14 +599,16 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
 	 * e.g. for "test_plugin.dll", icon "1.png" is loaded from <TeamSpeak 3 Client install dir>\plugins\test_plugin\1.png
 	 */
 
-	BEGIN_CREATE_MENUS(6);  /* IMPORTANT: Number of menu items must be correct! */
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_1,  "Include client",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_2,  "Ignore client",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_1, "Include this channel", "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_2, "Ignore channel", "");
+	BEGIN_CREATE_MENUS(8);  /* IMPORTANT: Number of menu items must be correct! */
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_ENABLED,  "Include client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CLIENT,  MENU_ID_CLIENT_IGNORED,  "Ignore client",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_ENABLED, "Include this channel", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_IGNORED, "Ignore channel", "");
 	//CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_CHANNEL_3, "Channel item 3", "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_1,  "Switch VO ON",  "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_2,  "Switch VO OFF",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_ON,  "Switch VO ON",  "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL,  MENU_ID_GLOBAL_OFF,  "Switch VO OFF",  "");
+    CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_RESET_CHANNELS, "Reset channels settings", "");
+    CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_RESET_CLIENTS, "Reset clients settings", "");
 	END_CREATE_MENUS;  /* Includes an assert checking if the number of menu items matched */
 
 	/*
@@ -578,9 +628,9 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
 	/* For example, this would disable MENU_ID_GLOBAL_2: */
 	/* ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 0); */
 
-    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 0);
-    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
-    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_ON, 0);
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 0);
+    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
 
 	/* All memory allocated in this function will be automatically released by the TeamSpeak client later by calling ts3plugin_freeMemory */
 }
@@ -1111,18 +1161,26 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 		case PLUGIN_MENU_TYPE_GLOBAL:
 			/* Global menu item was triggered. selectedItemID is unused and set to zero. */
 			switch(menuItemID) {
-				case MENU_ID_GLOBAL_1:
+				case MENU_ID_GLOBAL_ON:
 					/* Menu global 1 Turn ON was triggered */
                     g_voptions->set_status(VolumeOptions::status::ENABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 1);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_ON, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_OFF, 1);
 					break;
-				case MENU_ID_GLOBAL_2:
+				case MENU_ID_GLOBAL_OFF:
 					/* Menu global 2 Turn OFF was triggered */
                     g_voptions->set_status(VolumeOptions::status::DISABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_2, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_1, 1);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_OFF, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_ON, 1);
 					break;
+                case MENU_ID_GLOBAL_RESET_CHANNELS:
+                    /*  */
+                    g_voptions->reset_all_channels_settings();
+                    break;
+                case MENU_ID_GLOBAL_RESET_CLIENTS:
+                    /*  */
+                    g_voptions->reset_all_clients_settings();
+                    break;
 				default:
 					break;
 			}
@@ -1130,17 +1188,17 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 		case PLUGIN_MENU_TYPE_CHANNEL:
 			/* Channel contextmenu item was triggered. selectedItemID is the channelID of the selected channel */
 			switch(menuItemID) {
-				case MENU_ID_CHANNEL_1:
+				case MENU_ID_CHANNEL_ENABLED:
                     /* Menu channel 1 Include was triggered */
                     g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::ENABLED); // TODO: check status of each channel if we can
-                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 1);
 					break;
-				case MENU_ID_CHANNEL_2:
+				case MENU_ID_CHANNEL_IGNORED:
 					/* Menu channel 2 Ignore was triggered */
                     g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::DISABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_1, 1);
-                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_2, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 0);
 					break;
 				case MENU_ID_CHANNEL_3:
 					/* Menu channel 3 was triggered */
@@ -1152,17 +1210,17 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 		case PLUGIN_MENU_TYPE_CLIENT:
 			/* Client contextmenu item was triggered. selectedItemID is the clientID of the selected client */
 			switch(menuItemID) {
-				case MENU_ID_CLIENT_1:
+				case MENU_ID_CLIENT_ENABLED:
                     /* Menu client 1 Include client was triggered */
                     g_voptions->set_client_status(selectedItemID, VolumeOptions::status::ENABLED); // TODO: check status of each client if we can
-                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 0);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 1);
 					break;
-				case MENU_ID_CLIENT_2:
+				case MENU_ID_CLIENT_IGNORED:
 					/* Menu client 2 Ignore client was triggered */
                     g_voptions->set_client_status(selectedItemID, VolumeOptions::status::DISABLED);
-                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_1, 1);
-                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_2, 0);
+                    ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 1);
+                    //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 0);
 					break;
 				default:
 					break;

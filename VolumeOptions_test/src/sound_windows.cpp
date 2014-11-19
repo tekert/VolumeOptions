@@ -836,7 +836,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     if (m_AudioMonitor.m_settings.ses_global_settings.change_only_active_sessions)
     {
         AudioSessionState State = AudioSessionStateInactive;
-        m_pSessionControl->GetState(&State);
+        m_pSessionControl->GetState(&State); // NOTE: profiler marks this line as the only hot zone ~19%.
         if (State == AudioSessionStateActive)
             reduce_vol = true;
         else

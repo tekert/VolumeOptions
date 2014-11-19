@@ -354,7 +354,96 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     return m_vo_settings;
 }
 
-#if 0
+VolumeOptions::status VolumeOptions::get_status()
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    return m_status;
+}
+VolumeOptions::status VolumeOptions::get_channel_status(uint64_t channelID)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    if (m_ignored_channels.count(channelID))
+        return DISABLED;
+
+    return ENABLED;
+}
+VolumeOptions::status VolumeOptions::get_client_status(uint64_t clientID)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    if (m_ignored_clients.count(clientID))
+        return DISABLED;
+
+    return ENABLED;
+}
+
+void VolumeOptions::reset_all_channels_settings()
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // if nothing to reset, return
+    if (m_ignored_channels.empty())
+    {
+        dprintf("VO_PLUGIN: All channels at default status.\n");
+        return;
+    }
+
+    m_ignored_channels.clear();
+
+    // Now move all disabled channels currently with activity back to enabled.
+    if (!m_channels_with_activity[DISABLED].empty())
+    {
+        // move all channels
+        for (auto it : m_channels_with_activity[DISABLED])
+        {
+            m_channels_with_activity[ENABLED][it.first] =
+                std::move(m_channels_with_activity[DISABLED][it.first]);
+        }
+
+        m_channels_with_activity[DISABLED].clear();
+    }
+
+    dprintf("VO_PLUGIN: All channels settings cleared.\n");
+
+    // Update statuses
+    apply_status();
+}
+
+void VolumeOptions::reset_all_clients_settings()
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // if nothing to reset, return
+    if (m_ignored_clients.empty())
+    {
+        dprintf("VO_PLUGIN: All clients at default status.\n");
+        return;
+    }
+
+    m_ignored_clients.clear();
+
+    // Now move all currently disabled talking clients back to enabled.
+    if (!m_clients_talking[DISABLED].empty())
+    {
+        // move all clients
+        for (auto client : m_clients_talking[DISABLED])
+        {
+            m_clients_talking[ENABLED].insert(client);
+        }
+
+        m_channels_with_activity[DISABLED].clear();
+    }
+
+    dprintf("VO_PLUGIN: All clients settings cleared.\n");
+
+    // Update statuses
+    apply_status();
+
+}
+
+#if 0 // TODO delete this block later.
 void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -570,6 +659,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 
         m_ignored_channels.insert(channelID);
 
+        // if channel currently has activity move it and all his clients to disabled.
         if (m_channels_with_activity[ENABLED].count(channelID))
         {
             // move it.
@@ -589,6 +679,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 
         m_ignored_channels.erase(channelID);
 
+        // Now move the channel and and all his clients back to enabled if currently has activity.
         if (m_channels_with_activity[DISABLED].count(channelID))
         {
             // move it.
@@ -598,7 +689,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
         }
     }
 
-    printf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+    dprintf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
     apply_status();
@@ -624,6 +715,7 @@ void VolumeOptions::set_client_status(uint64_t clientID, status s)
 
         m_ignored_clients.insert(clientID);
 
+        // Move client to disabled status if currently talking.
         if (m_clients_talking[ENABLED].count(clientID))
         {
             // move it.
@@ -642,6 +734,7 @@ void VolumeOptions::set_client_status(uint64_t clientID, status s)
 
         m_ignored_clients.erase(clientID);
 
+        // Now move client back to enabled if currently talking
         if (m_clients_talking[DISABLED].count(clientID))
         {
             // move it.
@@ -650,7 +743,7 @@ void VolumeOptions::set_client_status(uint64_t clientID, status s)
         }
     }
 
-    printf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
+    dprintf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
     apply_status();
@@ -672,7 +765,7 @@ int VolumeOptions::apply_status()
         {
             if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
             {
-                printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
+                printf("VO_PLUGIN: Audio Monitor Stopped, restoring Sessions to default state...\n");
                 r = m_paudio_monitor->Pause();
                 //m_paudio_monitor->Stop();
             }
@@ -688,7 +781,7 @@ int VolumeOptions::apply_status()
             {
                 if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
                 {
-                    printf("VO_PLUGIN: Monitoring Sessions Active.\n");
+                    printf("VO_PLUGIN: Audio Monitor Active. starting/resuming...\n");
                     r = m_paudio_monitor->Start();
                 }
             }

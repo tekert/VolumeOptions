@@ -63,9 +63,17 @@ public:
     void restore_default_volume();
     float get_global_volume_reduction() const;
     void reset_data(); /* not used*/
+
     void set_status(status s);
-    void set_channel_status(uint64_t selectedItemID, status s);
+    status get_status();
+
+    void set_channel_status(uint64_t channelID, status s);
+    status get_channel_status(uint64_t channelID);
+    void reset_all_channels_settings();
+
     void set_client_status(uint64_t clientID, status s);
+    status get_client_status(uint64_t clientID);
+    void reset_all_clients_settings();
 
 private:
 
@@ -80,7 +88,7 @@ private:
 
     typedef uint64_t clientIDtype;
     typedef uint64_t channelIDtype;
-#if 0
+#if 0 // TODO delete this block later.
     // TODO: replace clientIDtype with pair ServerID, clientIDtype
     std::unordered_set<clientIDtype> m_clients_talking; // current total clients talking (all, including disabled)
     std::unordered_set<clientIDtype> m_disabled_clients; // clients marked as disabled
