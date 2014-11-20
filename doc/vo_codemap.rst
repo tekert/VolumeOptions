@@ -1,6 +1,6 @@
-==============================
-volumeoptions code explanation
-==============================
+=======================================
+volumeoptions internal code explanation
+=======================================
 
 :Author: Paul Dolcet, tekert@gmail.com
 :Version: 0.7.x
@@ -30,15 +30,15 @@ Basicaly endpoints are "hardware" audio devices and sessions are an abstraction 
 individual audio streams associated with a process.
 
 A session manager interface provides info about current audio sessions.
-Number 2 on WASAPI interfaces after the name of the class is made to separate different OS support.
+The "2" on WASAPI interfaces class names is made to separate different OS support.
 for example IAudioSessionManager2 only works on windows7+ 2008R2+ and IAudioSessionManager vista+
 
-In this code we need events, events are interfaces that provide callbacks, we can get this tipe of events
+In this project we need events, events are interfaces that provide callbacks, we can get this tipe of events
 for sessions: http://msdn.microsoft.com/en-us/library/dd368289%28v=vs.85%29.aspx
 for new sessions: http://msdn.microsoft.com/en-us/library/dd370969%28v=vs.85%29.aspx
 
-The reason these events are important is because it lets us add or change volume based on user actions on
-current registered events for audio sessions.
+The reason these events are important is because it lets us add or change volume, based on user actions on
+current registered events on audio sessions.
 There are important considerations when using events as explained in MSDN and in code. specially with threads.
 
 Thats the reason we use async calls from these callbacks, more info below.
@@ -50,16 +50,16 @@ structure
 high level map:
 
 	+---------------------------+                +----------------+
-	|SessionNotificationCallback|                |  VolumeOptions |
-	+---------------------------+                +----------------+ 
-	+---------------------+                            |
-	|SessionEventsCallback|                            |
-	+---------------------+                            |
-                                                     |
-                            +--------------+         | Only one instance.
-                            | AudioMonitor |<--------+
-                            +--------------+  
-                                   |
+	|SessionNotificationCallback|...             |  VolumeOptions |    <----------Talk software callbacks
+	+---------------------------+  .             +----------------+ 
+	+---------------------+        .                   |
+	|SessionEventsCallback|        .                   |
+	+---------------------+ ........                   |
+           .                     .                   |
+           .                +--------------+         |
+           .                | AudioMonitor |<--------+
+           .                +--------------+  Only one instance.
+           .                       |
 	+--------------+                 |
 	| AudioSession |                 |
 	+--------------+                 |
@@ -69,13 +69,14 @@ high level map:
 	+--------------+
 
 
-AudioMonitor
+AudioMonitor  (thread safe)
 ------------
   Runs in its own thread and uses asio io_service to execute ready handlers.
- we use asio io_service to queue calls from windows callbacks due to wasapi rules and our code flow.
+we use asio io_service to queue calls from windows callbacks due to wasapi rules (insted of creating a mutex
+for every case and maintain new code to adapt).
  
   Here we store sessions added, sessions are added automaticaly acording to current settings 
-of audio monitor. sessions are added via callbacks or enumeration (refresh gets all SndVol sessions)
+(of audio monitor). Sessions are added via callbacks or enumeration (refresh gets all SndVol sessions)
 we also store relative info to settings like delayed volume change etc, more info in code.
 
   Only one instance of this class can be created for each audio endpoint since we are controling a single
@@ -88,29 +89,37 @@ its important to always async calls from these callbacks.
 can access. (class AudioCallbackProxy)
 
   
-SessionNotificationCallback
+SessionNotificationCallback  (thread safe)
 ---------------------------
 
-  Contains a reference to wich monitor it belongs to report any new session detected.
+  Has a reference to wich monitor it belongs to report any new session detected.
 
-SessionEventsCallback
+SessionEventsCallback  (thread safe)
 ---------------------
 
-  Contaings both audio monitor and audio sessions it belongs to to report any new status.
-   (audio monitor reference is needed to get its asio::io_service and async calls)
+  Has both audio monitor reference and audio sessions weak_ptr to wich it belongs to report any new status.
+   (audio monitor reference is needed to get its asio::io_service and async calls with his thread)
 
-AudioSessions
+AudioSessions  (thread safe only when AudioMonitor manages it)
 -------------
 
-  This class cant be created by anyone exept audio monitor, this is because it need a reference to wich
-audio monitor it belongs, so it can fetch its settings and register events with monitor's reference.
+  This class cant be created by anyone exept audio monitor, this is because it need a reference to belonging
+audio monitor, so it can fetch its settings and register events with audio monitor's reference, it also needs
+current settings from audio monitor, and most importantly, wasapi wont report expired sessions as long as we
+retaing a reference to any wasapi object (whats the use right?) so we cant notify the user if the session is
+no longer valid, we have to use it internaly.
 
-TODO: continue explaining. this is the most important.
+	Thats why audiomonitor has expire timers to delete old inactive saved sessions, the session has time points
+of when it was last modified and when was the last time it was active, etc. With that info we can mimic SndVol
+expires, on testing i saw that it takes 2min of a closed process audio session to delete itself from the
+AudioManager enumerator, we do a similar thing here, inactive sesesions are deleted, if they come active again
+and we dont have any reference to that session we will receive a new session notification.
 
-VolumeOptions
+
+VolumeOptions  (thread safe)
 -------------
 
-  Plugin like interface to adapt it on different software, it uses audio monitor public methods and settings.
+  Plugin interface adapted for talk software, it uses audio monitor public methods and settings.
 
 
 

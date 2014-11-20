@@ -12,7 +12,7 @@ modification, are permitted provided that the following conditions are met:
     this list of conditions and the following disclaimer in the documentation
     and/or other materials provided with the distribution.
 
-    * Neither the name of [project] nor the names of its
+    * Neither the name of VolumeOptions nor the names of its
     contributors may be used to endorse or promote products derived from
     this software without specific prior written permission.
 
@@ -57,7 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm> // for string conversion
 #include <thread> // for main monitor thread
 #include <condition_variable>
-#include <assert.h>
+#include <cassert>
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sounds_windows.h"
@@ -143,7 +143,6 @@ namespace
 
     /* If compiler supports variadic templates use this, its nicer */
     /* perfect forwarding,  rvalue references */
-#ifdef COMPILER_SUPPORT_VARIADIC_TEMPLATES
 
     template <typename ft, typename... pt>
     void ASYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
@@ -188,7 +187,7 @@ namespace
         return std::move(delay_timer);
     }
 
-#else // TODO use this in code ifndef
+#if 0 // TODO in case we dont support variadic templates. DEPRECATED.
 
     // Note: When all are released only the ones with the local bool set to true return, the others wait again.
 #define VO_SYNC_WAIT \
@@ -776,7 +775,7 @@ void AudioSession::StopEvents()
         dprintf("AudioSession::StopEvents() Stopped Session Events on PID[%d]\n", getPID());
     }
 
-    // if called too fast it can be > 1, maybe a callback was in place.
+    // if called too fast it can be > 1, maybe a callback was in place. assert it
     if (m_pAudioEvents != NULL)
         assert(CHECK_REFS(m_pAudioEvents) == 1);
 

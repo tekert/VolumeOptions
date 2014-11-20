@@ -12,7 +12,7 @@ modification, are permitted provided that the following conditions are met:
     this list of conditions and the following disclaimer in the documentation
     and/or other materials provided with the distribution.
 
-    * Neither the name of [project] nor the names of its
+    * Neither the name of VolumeOptions nor the names of its
     contributors may be used to endorse or promote products derived from
     this software without specific prior written permission.
 
@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
+#include <cassert>
 #ifdef _WIN32
 // comparing ptrees causes many warnings if we dont do this.
 #pragma warning(push)
@@ -422,7 +422,7 @@ VolumeOptions::status VolumeOptions::get_channel_status(uint64_t channelID)
 
     return ENABLED;
 }
-VolumeOptions::status VolumeOptions::get_client_status(uint64_t clientID)
+VolumeOptions::status VolumeOptions::get_client_status(uniqueClientID_t clientID)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -555,7 +555,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 /*
     Marks clients as disabled for auto volume changes when volumeoptions is running.
 */
-void VolumeOptions::set_client_status(uint64_t clientID, status s)
+void VolumeOptions::set_client_status(uniqueClientID_t clientID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -660,7 +660,7 @@ int VolumeOptions::apply_status()
     NOTE: When clients stops talking because they are moved or etc, ts3 onTalkStatusChange will contain the destination
         channel, not the original one, we correct that case here.
 */
-int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
+int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, uniqueClientID_t clientID,
     bool ownclient)
 {
     int r = 1;
@@ -716,7 +716,7 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
         // Substract client from channel count, if empty delete it.
         // TS3FIXNOTE: When a client is moved from a channel the talk status false has the new channel, not the old..
         // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
-        channelIDtype channelID_origin = channelID;
+        channelID_t channelID_origin = channelID;
         status channelID_origin_status;
         if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
         for (auto it_status : m_channels_with_activity)

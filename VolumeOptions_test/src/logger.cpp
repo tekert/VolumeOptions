@@ -1,5 +1,6 @@
 #include "../volumeoptions/logger.hpp"
 
+#if 0
 
 logging::textfile_log_writer log_inst("execution.log");
 
@@ -59,3 +60,4 @@ namespace logging
     }
 
 }
+#endif

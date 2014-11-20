@@ -12,7 +12,7 @@ list of conditions and the following disclaimer.
 this list of conditions and the following disclaimer in the documentation
 and/or other materials provided with the distribution.
 
-* Neither the name of [project] nor the names of its
+* Neither the name of VolumeOptions nor the names of its
 contributors may be used to endorse or promote products derived from
 this software without specific prior written permission.
 
@@ -32,24 +32,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define VO_CONFIG_H
 
 #include <boost/config.hpp>
-#ifndef BOOST_NO_CXX11_VARIADIC_TEMPLATES
-// Workaround, boost disabled this define for mscv 12 as a workaround, but mscv 12 supports it.
-#if _MSC_VER == 1800
-#define COMPILER_SUPPORT_VARIADIC_TEMPLATES
-#endif
-#else
-#define COMPILER_SUPPORT_VARIADIC_TEMPLATES
-#endif
+
 
 //TODO: do we really need this macro? was originaly for vista support but...
 #define VO_ENABLE_EVENTS
 
-// TODO: i dont like boost::log, too many dependacies for a logger, ill do it myself maybe.
+
+#define VO_USE_SYSTEM_ASSERT 0 // 1 = use standard system asserts, 0 = use our asserts
+#define VO_VERSION "test" // TODO remove this
+
 #ifdef _DEBUG
 #define PRINT_LOG 1
+
+#if !VO_USE_SYSTEM_ASSERT
+#define VO_WRITE_TO_FILE_ASSERTS 0 // 1 = writes asserts to file and continues normal execution. 0 = prints and aborts
+#endif
+
 #else
 #define PRINT_LOG 0
+
+#define VO_RELEASE_ASSERTS  // forces asserts on release mode
+#ifdef VO_RELEASE_ASSERTS
+#define VO_WRITE_TO_FILE_ASSERTS 1 
 #endif
+
+#endif
+
 
 #ifdef PRINT_LOG
 #if PRINT_LOG
@@ -60,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define dwprintf(...)
 #endif
 #endif
+
 
 
 #endif

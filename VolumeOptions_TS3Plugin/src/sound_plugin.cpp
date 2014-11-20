@@ -12,7 +12,7 @@ modification, are permitted provided that the following conditions are met:
     this list of conditions and the following disclaimer in the documentation
     and/or other materials provided with the distribution.
 
-    * Neither the name of [project] nor the names of its
+    * Neither the name of VolumeOptions nor the names of its
     contributors may be used to endorse or promote products derived from
     this software without specific prior written permission.
 
@@ -28,11 +28,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
+#include <cassert>
+#ifdef _WIN32
+// comparing ptrees causes many warnings if we dont do this.
+#pragma warning(push)
+#pragma warning(disable: 4996)
+#endif
 #include <codecvt>
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 #include <fstream>
 
 // for ini parser
@@ -44,9 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
-
-
 /*  Utilities	*/
+
 
 // convert UTF-8 string to wstring
 inline std::wstring utf8_to_wstring(const std::string& str)
@@ -89,7 +97,7 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     }
     else
     {
-        int ok = parse_config(in); // 0 on error.
+        int ok = parse_config(in, configFile); // 0 on error.
         if (!ok)
         {
             printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
@@ -132,7 +140,17 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "[global]\n"
         "enabled = 1\n"
         "\n"
-        "# from 0.0 to 1.0 default 0.5(50%)\n"
+        "\n"
+        "[plugin]\n"
+        "\n"
+        "# change volume when we talk ? default 1(true)\n"
+        "exclude_own_client = 1\n"
+        "\n"
+        "\n"
+        "\n"
+        "[AudioSessions]\n"
+        "\n"
+        "# from 0.0 to 1.0 default 0.5(50 % )\n"
         "vol_reduction = 0.5\n"
         "\n"
         "# as milliseconds default 400ms\n"
@@ -144,39 +162,60 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "# recommended on \"1\" use \"0\" only in special cases default 1(true)\n"
         "change_only_active_sessions = 1\n"
         "\n"
+        "\n"
+        "\n"
+        "[AudioMonitor]\n"
+        "\n"
         "# this should be 1 always default 1(true)\n"
         "exclude_own_process = 1\n"
-        "\n"
-        "# change volume when we talk? default 1(true)\n"
-        "exclude_own_client = 1\n"
         "\n"
         "# excluded_pids and included_pids takes a list of process IDs\n"
         "# excluded_process and included_process takes a list of executable names or paths\n"
         "#\n"
-        "# takes a list separated by ;\n"
+        "# takes a list separated by \";\"\n"
         "# in case of process names, can be anything, from full path to name to search in full path\n"
         "#\n"
         "# Example:\n"
-        "# excluded_process = process1.exe ; C:\\this\\path\\to\\my\\program; _player\n"
-        "# excluded_pids = 432;5; 5832\n"
+        "# excluded_process = process1.exe; C:\\this\\path\\to\\my\\program; _player\n"
+        "# excluded_pids = 432; 5; 5832\n"
         "\n"
         "# use exluded or included filters, cant use both for now.\n"
         "use_included_filter = 0\n"
         "\n"
-        "excluded_pids = \n"
-        "excluded_process = \n"
+        "excluded_pids =\n"
+        "excluded_process =\n"
         "\n"
-        "included_pids = \n"
-        "included_process = \n"
+        "included_pids =\n"
+        "included_process =\n"
         "\n"
-        "\n"
-        "[sessions]\n"
         "\n"
         "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
         "#volume_list = mymusic.exe:0.4; firefox.exe:0.8\n";
+
+
 }
 
-int VolumeOptions::parse_config(std::fstream& in)
+/*
+    Simple template, creates the path with default value if it doesnt exists. else returns the value.
+*/
+template <typename T>
+T ini_put_get(boost::property_tree::ptree& pt, const std::string& path, const T& default_value)
+{
+    boost::optional<T> opt = pt.get_optional<T>(path.c_str());
+    if (opt)
+    {
+        return *opt;
+    }
+    else // put missing config
+    {
+        try { pt.put(path.c_str(), default_value); }
+        catch (boost::property_tree::ptree_bad_data) { assert(false); }
+    }
+
+    return default_value;
+}
+
+int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -194,59 +233,73 @@ int VolumeOptions::parse_config(std::fstream& in)
         return 0;
     }
 
-    // Using boost property threes, for ini files we use get default-value version (no throw).
+    ptree orig_pt = pt;
+
+    // settings shortcuts
+    vo::session_settings& ses_settings = m_vo_settings.monitor_settings.ses_global_settings;
+    vo::monitor_settings& mon_settings = m_vo_settings.monitor_settings;
+    const vo::session_settings& def_ses_settings = default_settings.monitor_settings.ses_global_settings;
+    const vo::monitor_settings& def_mon_settings = default_settings.monitor_settings;
+
+    // Using boost property threes, boost::optional version used to fill missing config.
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
 
-    // TODO: fill missing settings on ini file. use thow version of get.
 
-    int enabled = pt.get("global.enabled", 1);
+    int enabled = ini_put_get<int>(pt, "global.enabled", 1);
     if (!enabled) m_status = status::DISABLED;
+
+    // bool: do we exclude ourselfs?
+    m_vo_settings.exclude_own_client = ini_put_get<bool>(pt, "plugin.exclude_own_client", default_settings.exclude_own_client);
 
     // AudioMonitor will validate these values when AudioMonitor::SetSettings is called
 
-    // TODO: make Global section, AudioMonitor Section, AudioSession section and TS3Plugin section
 
     // float: Global volume reduction
-    m_vo_settings.monitor_settings.ses_global_settings.vol_reduction = 
-        pt.get("global.vol_reduction", default_settings.monitor_settings.ses_global_settings.vol_reduction);
-
+    ses_settings.vol_reduction = ini_put_get<float>(pt, "AudioSessions.vol_reduction", def_ses_settings.vol_reduction);
+   
     // long long: Read a number using millisecond represetantion (long long) create milliseconds chrono type and assign it.
-    std::chrono::milliseconds::rep _delay_milliseconds =
-        pt.get("global.vol_up_delay", default_settings.monitor_settings.ses_global_settings.vol_up_delay.count());
+    std::chrono::milliseconds::rep _delay_milliseconds;
+    _delay_milliseconds = ini_put_get<std::chrono::milliseconds::rep>(pt, "AudioSessions.vol_up_delay", def_ses_settings.vol_up_delay.count());
     std::chrono::milliseconds delay_milliseconds(_delay_milliseconds);
-    m_vo_settings.monitor_settings.ses_global_settings.vol_up_delay = delay_milliseconds;
+    ses_settings.vol_up_delay = delay_milliseconds;
 
     // bool: Change vol as % or fixed
-    m_vo_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage = 
-        pt.get("global.vol_as_percentage", default_settings.monitor_settings.ses_global_settings.treat_vol_as_percentage);
+    ses_settings.treat_vol_as_percentage = ini_put_get<bool>(pt, "AudioSessions.vol_as_percentage", def_ses_settings.treat_vol_as_percentage);
 
     // bool: Change vol only to active audio sessions? recommended
-    m_vo_settings.monitor_settings.ses_global_settings.change_only_active_sessions = 
-        pt.get("global.change_only_active_sessions", default_settings.monitor_settings.ses_global_settings.change_only_active_sessions);
+    ses_settings.change_only_active_sessions = ini_put_get<bool>(pt, "AudioSessions.change_only_active_sessions", def_ses_settings.change_only_active_sessions);
+
 
     // bool: Dont know why but... yep..  1 enable, 0 disable
-    m_vo_settings.monitor_settings.exclude_own_process = 
-        pt.get("global.exclude_own_process", default_settings.monitor_settings.exclude_own_process);
+    mon_settings.exclude_own_process = ini_put_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    // bool: do we exclude ourselfs?
-    m_vo_settings.exclude_own_client =
-        pt.get("global.exclude_own_client", default_settings.exclude_own_client);
-        
     std::string pid_list;
     std::string process_list;
 
     // bool: Cant use both filters.
-    int use_included_filter = pt.get("global.use_included_filter", default_settings.monitor_settings.use_included_filter);
+    mon_settings.use_included_filter = ini_put_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    if (use_included_filter)
+    if (mon_settings.use_included_filter)
     {
-        pid_list = pt.get("global.included_pids", "");
-        process_list = pt.get("global.included_process", "");
+        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.included_pids", "");
+        process_list = ini_put_get<std::string>(pt, "AudioMonitor.included_process", "");
     }
     else
     {
-        pid_list = pt.get("global.excluded_pids", "");
-        process_list = pt.get("global.excluded_process", "");
+        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
+        process_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_process", "");
+    }
+            
+    // Update ini file if some values were missing.
+    try
+    {
+        if (orig_pt != pt) // NOTE: this comparison can cause warnings depending on included headers
+            write_ini(configFile, pt);
+    }
+    catch (boost::property_tree::ini_parser::ini_parser_error)
+    {
+        // TODO report error to ts3 log
+        assert(false);
     }
     
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
@@ -257,10 +310,10 @@ int VolumeOptions::parse_config(std::fstream& in)
     {
         std::string pname(*it);
         boost::algorithm::trim(pname);
-        if (use_included_filter)
-            m_vo_settings.monitor_settings.included_process.insert(utf8_to_wstring(pname));
+        if (mon_settings.use_included_filter)
+            mon_settings.included_process.insert(utf8_to_wstring(pname));
         else
-            m_vo_settings.monitor_settings.excluded_process.insert(utf8_to_wstring(pname));
+            mon_settings.excluded_process.insert(utf8_to_wstring(pname));
     }
     for (auto it = pidtokens.begin(); it != pidtokens.end(); ++it)
     {
@@ -268,27 +321,27 @@ int VolumeOptions::parse_config(std::fstream& in)
         {
             std::string spid(*it);
             boost::algorithm::trim(spid);
-            if (use_included_filter)
-                m_vo_settings.monitor_settings.included_pids.insert(std::stoi(spid));
+            if (mon_settings.use_included_filter)
+                mon_settings.included_pids.insert(std::stoi(spid));
             else
-                m_vo_settings.monitor_settings.excluded_pids.insert(std::stoi(spid));
+                mon_settings.excluded_pids.insert(std::stoi(spid));
         }
-        catch (std::invalid_argument) // std::stoi TODO: return something to report it to log
+        catch (std::invalid_argument) // std::stoi TODO: return something and report it to log
         { }
-        catch (std::out_of_range) // std::stoi TODO: return something to report it to log
+        catch (std::out_of_range) // std::stoi TODO: return something and report it to log
         { }
     }
 
 
 #ifdef _DEBUG
-    printf("\n\n\n\n");
+    dprintf("\n\n\n\n");
     for (auto& section : pt)
     {
         std::cout << "section.first= " << '[' << section.first << "]\n";
         for (auto& key : section.second)
             std::cout << "key.first="<< key.first << "    key.second.get_value<std::string>()=" << key.second.get_value<std::string>() << "\n";
     }
-    printf("\n\n\n\n");
+    dprintf("\n\n\n\n");
 #endif
 
     return 1;
@@ -369,7 +422,7 @@ VolumeOptions::status VolumeOptions::get_channel_status(uint64_t channelID)
 
     return ENABLED;
 }
-VolumeOptions::status VolumeOptions::get_client_status(uint64_t clientID)
+VolumeOptions::status VolumeOptions::get_client_status(uniqueClientID_t clientID)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -443,202 +496,6 @@ void VolumeOptions::reset_all_clients_settings()
 
 }
 
-#if 0 // TODO delete this block later.
-void VolumeOptions::set_channel_status(uint64_t channelID, status s)
-{
-    std::lock_guard<std::recursive_mutex> guard(m_mutex);
-
-    printf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
-
-    if (s == status::DISABLED)
-    {
-        if (!m_disabled_channels.count(channelID))
-        {
-            m_disabled_channels.insert(channelID);
-
-            // add channel to performance set if its disabled and has activity
-            if (m_channels_with_activity.count(channelID))
-                m_disabled_channels_with_activity.insert(channelID);
-        }
-    }
-    if (s == status::ENABLED)
-    {
-        m_disabled_channels.erase(channelID);
-
-        // remove channel from performance set if it was disabled and had activity
-        if (m_channels_with_activity.count(channelID))
-            m_disabled_channels_with_activity.erase(channelID);
-    }
-
-    // Update statuses
-    apply_status();
-}
-
-void VolumeOptions::set_client_status(uint64_t clientID, status s)
-{
-    std::lock_guard<std::recursive_mutex> guard(m_mutex);
-
-    printf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
-
-    if (s == status::DISABLED)
-    {
-        if (!m_disabled_clients.count(clientID))
-        {
-            m_disabled_clients.insert(clientID);
-
-            // if disabled client is currently talking
-            if (m_clients_talking.count(clientID))
-                m_disabled_clients_talking.insert(clientID);
-        }
-    }
-    if (s == status::ENABLED)
-    {
-        m_disabled_clients.erase(clientID);
-
-        // if disabled client is currently talking
-        if (m_clients_talking.count(clientID))
-            m_disabled_clients_talking.erase(clientID);
-    }
-
-    // Update statuses
-    apply_status();
-}
-
-/*
-    Starts or stops audio monitor based on ts3 talking statuses.
-
-    We use three sets:
-    m_clients_talking has all the clients (disabled and non disabled) currently talking.
-    m_disabled_clients has all the clients that should not affect apps volume.
-    m_disabled_clients_talking has all the disabled clients currenlty talking.
-
-    Notice we can compute 'm_disabled_clients_talking' from the other first two sets, but we need to know when
-        all the not disabled clients are quiet(not talking), and compute it every time someone talks, 
-        to increase performance we use another set with that info 'm_disabled_clients_talking'. So we can just simply
-        compare sizes: if (m_clients_talking.size() - m_disabled_clients_talking.size()) == 0 then we got it fast.
-    Same thing with channels.
-*/
-int VolumeOptions::apply_status()
-{
-    int r = 1;
-
-    // if last client non disabled stoped talking, restore sounds. 
-    // (I did it with another talking set for performance, so we dont have to search wich m_clients_talking are
-    //      disabled every time, same for channels)
-    if (m_clients_talking.empty() ||
-        (m_clients_talking.size() == m_disabled_clients_talking.size()) ||
-        (m_channels_with_activity.size() == m_disabled_channels_with_activity.size()) )
-    {
-        if (m_status == status::ENABLED)
-        {
-            if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
-            {
-                printf("VO_PLUGIN: Monitoring Sessions Stopped, Restoring Sessions to default state...\n");
-                r = m_paudio_monitor->Pause();
-                //m_paudio_monitor->Stop();
-            }
-        }
-        m_someone_enabled_is_talking = false; // excluding disabled
-    }
-    else // someone non disabled is talking
-    {
-        // if someone non disabled talked while audio monitor was down, start it
-        if (!m_someone_enabled_is_talking)
-        {
-            if (m_status == status::ENABLED)
-            {
-                if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
-                {
-                    printf("VO_PLUGIN: Monitoring Sessions Active.\n");
-                    r = m_paudio_monitor->Start();
-                }
-            }
-            m_someone_enabled_is_talking = true;
-        }
-    }
-    return r;
-}
-
-/*
-    Handler for TS3 onTalkStatusChangeEvent
-*/
-int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
-    bool ownclient)
-{
-    int r = 1;
-
-    std::lock_guard<std::recursive_mutex> guard(m_mutex);
-
-    // if this is mighty ourselfs talking, ignore after we stop talking to update.
-    // TODO if user ignores himself well get incorrect count, fix it.
-    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking.count(clientID))
-    {
-        dprintf("VO_PLUGIN: We are talking.. do nothing\n");
-        return r;
-    }
-
-    // NOTE: We assume TS3 will always send talk_status false when other clients disconnects, changes channel or etc.
-    // Lines marked with /**/ are performance sets used to search quickly wich disabled clients/channels
-    //      dont count for starting our audio change monitor see ::apply_status() for info.
-    if (talk_status)
-    {
-        m_clients_talking.insert(clientID);
-
-        // If this client currently talking should not affect volume, add it to another set for performance.
-        if (m_disabled_clients.count(clientID))             /**/
-            m_disabled_clients_talking.insert(clientID);    /**/
-
-
-        // if this is the first talk activity in the channel (for performance, so we dont repeat this)
-        if (!m_channels_with_activity.count(channelID))
-        {
-            if (m_disabled_channels.count(channelID))                   /**/
-                m_disabled_channels_with_activity.insert(channelID);    /**/
-        }
-        //
-        m_channels_with_activity[channelID].insert(clientID);
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[%llu].size()= %llu\n", channelID, m_channels_with_activity[channelID].size());
-    }
-    else
-    {
-        m_clients_talking.erase(clientID);
-
-        // also remove it from here if it was disabled. (we use another set for performance, see ::apply_status())
-        if (m_disabled_clients.count(clientID))             /**/
-            m_disabled_clients_talking.erase(clientID);     /**/
-
-
-        // substract client from channel count, if empty delete it.
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[%llu].size()= %llu\n", channelID, m_channels_with_activity[channelID].size());
-        // NOTE: When a client is moved from a channel the talk status false has the new channel, not the old..
-        // SELFNOTE: maybe rewrite this. (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
-        channelIDtype channelID_corrected = channelID;
-        for (auto it : m_channels_with_activity) // low overhead, usualy a client is in as many channels as servers.
-        {
-            if (it.second.count(clientID)) { channelID_corrected = it.first; break; }
-        }
-        m_channels_with_activity[channelID_corrected].erase(clientID);
-        if (m_channels_with_activity[channelID_corrected].empty())
-        {
-            m_channels_with_activity.erase(channelID_corrected);
-            if (m_disabled_channels.count(channelID_corrected))               /**/
-                m_disabled_channels_with_activity.erase(channelID_corrected); /**/
-        }
-    }
-
-    dprintf("VO_PLUGIN: Update: Users currently talking (including disabled): %llu\n", m_clients_talking.size());
-    dprintf("VO_PLUGIN: Update: Users currently talking (excluding disabled): %llu\n\n", 
-        m_clients_talking.size() - m_disabled_clients_talking.size());
-    dprintf("VO_PLUGIN: Update: Channels with activity (including disabled): %llu\n", m_channels_with_activity.size());
-    dprintf("VO_PLUGIN: Update: Channels with activity (excluding disabled): %llu\n\n",
-        m_channels_with_activity.size() - m_disabled_channels_with_activity.size());
-
-    // Update audio monitor status
-    apply_status();
-
-    return r; // TODO error codes
-}
-#else
 /*
     Marks channels as disabled for auto volume change when volume options is running
 */
@@ -698,7 +555,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 /*
     Marks clients as disabled for auto volume changes when volumeoptions is running.
 */
-void VolumeOptions::set_client_status(uint64_t clientID, status s)
+void VolumeOptions::set_client_status(uniqueClientID_t clientID, status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -803,7 +660,7 @@ int VolumeOptions::apply_status()
     NOTE: When clients stops talking because they are moved or etc, ts3 onTalkStatusChange will contain the destination
         channel, not the original one, we correct that case here.
 */
-int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
+int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, uniqueClientID_t clientID,
     bool ownclient)
 {
     int r = 1;
@@ -859,7 +716,7 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
         // Substract client from channel count, if empty delete it.
         // TS3FIXNOTE: When a client is moved from a channel the talk status false has the new channel, not the old..
         // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
-        channelIDtype channelID_origin = channelID;
+        channelID_t channelID_origin = channelID;
         status channelID_origin_status;
         if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
         for (auto it_status : m_channels_with_activity)
@@ -919,4 +776,3 @@ int VolumeOptions::process_talk(const bool talk_status, uint64_t channelID, uint
 
     return r; // TODO error codes
 }
-#endif

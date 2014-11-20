@@ -33,6 +33,9 @@
     <ClCompile Include="src\sound_plugin_gui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\debug.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\sound_plugin.h">

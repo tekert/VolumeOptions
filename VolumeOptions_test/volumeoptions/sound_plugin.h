@@ -12,7 +12,7 @@ modification, are permitted provided that the following conditions are met:
     this list of conditions and the following disclaimer in the documentation
     and/or other materials provided with the distribution.
 
-    * Neither the name of [project] nor the names of its
+    * Neither the name of VolumeOptions nor the names of its
     contributors may be used to endorse or promote products derived from
     this software without specific prior written permission.
 
@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stack>
 #include <mutex>
 #include <unordered_set>
+#include <string>
 
 #include "stdint.h"
 
@@ -42,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "sounds_windows.h"
 #include "vo_settings.h"
 #endif
+
+
 
 // Client Interface for Team Speak 3
 class VolumeOptions
@@ -53,8 +56,11 @@ public:
 
     enum status { DISABLED = 0, ENABLED};
 
+    typedef std::string uniqueClientID_t;
+    typedef uint64_t channelID_t;
+
     // talk status, true if talking, false if not talking anymore. optional ownclient = true if we are talking
-    int process_talk(const bool talk_status, uint64_t channelID, uint64_t clientID,
+    int process_talk(const bool talk_status, channelID_t channelID, uniqueClientID_t clientID,
         bool ownclient = false);
 
     vo::volume_options_settings get_current_settings() const; // TODO: minimize copies
@@ -71,8 +77,8 @@ public:
     status get_channel_status(uint64_t channelID);
     void reset_all_channels_settings();
 
-    void set_client_status(uint64_t clientID, status s);
-    status get_client_status(uint64_t clientID);
+    void set_client_status(uniqueClientID_t clientID, status s);
+    status get_client_status(uniqueClientID_t clientID);
     void reset_all_clients_settings();
 
 private:
@@ -86,22 +92,18 @@ private:
 
     vo::volume_options_settings m_vo_settings;
 
-    typedef uint64_t clientIDtype;
-    typedef uint64_t channelIDtype;
-
-    // TODO: replace clientIDtype with pair ServerID, clientIDtype, same for channels
+    // TODO: make the channels IDs unique somehow.... combine serverID tab with channel?
     /* current disabled and enabled clients talking */
-    std::unordered_map<status, std::unordered_set<clientIDtype>> m_clients_talking;
+    std::unordered_map<status, std::unordered_set<uniqueClientID_t>> m_clients_talking;
     /* clients marked as disabled */
-    std::unordered_set<clientIDtype> m_ignored_clients;
+    std::unordered_set<uniqueClientID_t> m_ignored_clients;
 
-    typedef std::unordered_map<channelIDtype, std::unordered_set<clientIDtype>> channel_info;
+    typedef std::unordered_map<channelID_t, std::unordered_set<uniqueClientID_t>> channel_info;
     /* current enabled and disabled channels with activity (someone talking in it) */ //TODO use vector?
     std::unordered_map<status, channel_info> m_channels_with_activity;
     /* channels marked as disabled */
-    std::unordered_set<channelIDtype> m_ignored_channels;
+    std::unordered_set<channelID_t> m_ignored_channels;
 
-#endif
     status m_status;
     bool m_someone_enabled_is_talking;
 
