@@ -18,12 +18,13 @@ int main2(int argc, char* argv[])
 
     VolumeOptions::channelID_t channelID;
     VolumeOptions::uniqueClientID_t clientID;
+    VolumeOptions::uniqueServerID_t uniqueServerID = "etcetc...";
     // NOTE: this assumes every individual client talks and then stops talking always.
 	for (;;)
 	{
         // client 0 starts talking
         channelID = 0; clientID = "0";
-        vo->process_talk(true, channelID, clientID);
+        vo->process_talk(true, uniqueServerID, channelID, clientID);
 
         // change volume on the fly.
         settings.monitor_settings.ses_global_settings.vol_reduction = 0.7f;
@@ -31,7 +32,7 @@ int main2(int argc, char* argv[])
 
         // client 1 starts talking too
         channelID = 0; clientID = "1";
-        vo->process_talk(true, channelID, clientID);
+        vo->process_talk(true, uniqueServerID, channelID, clientID);
 
 		system("PAUSE");
 
@@ -41,11 +42,11 @@ int main2(int argc, char* argv[])
         // client 1 stops talking, vol reduction will be deactivated, because client 0 is the last one and
         //      its disabled
         channelID = 0; clientID = "1";
-        vo->process_talk(false, channelID, clientID);
+        vo->process_talk(false, uniqueServerID, channelID, clientID);
 
         // client 0 stops talking, nothing will happend because its disabled.
         channelID = 0; clientID = "0";
-        vo->process_talk(false, channelID, clientID); // client 1 stops talking, now vol reduction will be deactivated.
+        vo->process_talk(false, uniqueServerID, channelID, clientID); // client 1 stops talking, now vol reduction will be deactivated.
 
 		system("PAUSE");
 	}

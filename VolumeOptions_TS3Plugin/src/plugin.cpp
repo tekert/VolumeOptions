@@ -466,20 +466,24 @@ enum {
  * Check the parameter "type" if you want to implement this feature only for specific item types. Set the parameter
  * "data" to NULL to have the client ignore the info data.
  */
-void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum PluginItemType type, char** data) {
-	char* name;
+void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum PluginItemType type, char** data) 
+{
+	char* name = 0;
     char vo_status[INFODATA_BUFSIZE];
     VolumeOptions::status s;
     char* uid = 0;
+    char* unique_serverid = 0;
 
 	/* For demonstration purpose, display the name of the currently selected server, channel or client. */
-	switch(type) {
+	switch(type) 
+    {
 		case PLUGIN_SERVER:
 			if(ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_NAME, &name) != ERROR_ok) {
 				printf("Error getting virtual server name\n");
 				return;
 			}
 
+            // TODO: global is not the same as server.. change this.
             s = g_voptions->get_status();
             snprintf(vo_status, INFODATA_BUFSIZE, "Server [u]%s[/u] status: %s[/color]",
                 name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
@@ -491,8 +495,13 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 				printf("Error getting channel name\n");
 				return;
 			}
+            if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
+            {
+                ts3Functions.logMessage("Error querying server unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
+                return;
+            }
 
-            s = g_voptions->get_channel_status(id);
+            s = g_voptions->get_channel_status(unique_serverid, id);
             snprintf(vo_status, INFODATA_BUFSIZE, "Channel [u]%s[/u] status: %s[/color]",
                 name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
 
@@ -535,7 +544,6 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
             }
 
-            ts3Functions.freeMemory(uid);
 			break;
 
 		default:
@@ -548,7 +556,12 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
     snprintf(*data, INFODATA_BUFSIZE, "%s  [color=#B6B6CC]|[/color]  [I]%d%%[/I]",
         vo_status, int(g_voptions->get_global_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
     
-	ts3Functions.freeMemory(name);
+    if (uid)
+        ts3Functions.freeMemory(uid);
+    if (unique_serverid) 
+        ts3Functions.freeMemory(unique_serverid);
+    if (name)
+	    ts3Functions.freeMemory(name);
 }
 
 /* Required to release the memory for parameter "data" allocated in ts3plugin_infoData and ts3plugin_initMenus */
@@ -869,7 +882,7 @@ int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetM
 
 void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int status, int isReceivedWhisper, anyID clientID) 
 {
-    /* Get own client TODO: move this to other less called function and make it global per server. */
+    /* Get own client */
 	anyID myID;
 	if (ts3Functions.getClientID(serverConnectionHandlerID, &myID) != ERROR_ok) 
     {
@@ -882,10 +895,8 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
     {
         ts3Functions.logMessage("Error querying channel ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
         return;
-    }
-    
+    }   
     char* uid = 0;
-    /*
     if (clientID == myID)
     {
         if (ts3Functions.getClientSelfVariableAsString(serverConnectionHandlerID, CLIENT_UNIQUE_IDENTIFIER, &uid) != ERROR_ok)
@@ -895,30 +906,36 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
         }
     }
     else
-    {*/
+    {
         if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, clientID, CLIENT_UNIQUE_IDENTIFIER, &uid) != ERROR_ok)
         {
             ts3Functions.logMessage("Error querying client unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
             return;
         }
-    //}
+    }
+    char* unique_serverid = 0;
+    if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
+    {
+        ts3Functions.logMessage("Error querying server unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
+        return;
+    }
 
     
 	if (status == STATUS_TALKING) 
     {
         printf("VO_PLUGIN_INT:  %hu [%s] starts talking\n", clientID, uid);
-        g_voptions->process_talk(true, channelID, uid, (clientID == myID));
+        g_voptions->process_talk(true, unique_serverid, channelID, uid, (clientID == myID));
 	}
-	else 
+	else if (status == STATUS_NOT_TALKING)
     {
-        if (status == STATUS_NOT_TALKING)
-        {
-            printf("VO_PLUGIN_INT:  %hu [%s] stops talking\n", clientID, uid);
-            g_voptions->process_talk(false, channelID, uid, (clientID == myID));
-        }
-	}
+        printf("VO_PLUGIN_INT:  %hu [%s] stops talking\n", clientID, uid);
+        g_voptions->process_talk(false, unique_serverid, channelID, uid, (clientID == myID));
+    }
 
-    ts3Functions.freeMemory(uid);
+    if (unique_serverid)
+        ts3Functions.freeMemory(unique_serverid);
+    if (uid)
+        ts3Functions.freeMemory(uid);
 
 // Original test SDK:
 #if 0
@@ -1188,6 +1205,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
         (long long unsigned int)serverConnectionHandlerID, type, menuItemID, (long long unsigned int)selectedItemID);
 	
     char* uid = 0;
+    char* unique_serverid = 0;
 
     switch(type) {
 		case PLUGIN_MENU_TYPE_GLOBAL:
@@ -1218,17 +1236,24 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			}
 			break;
 		case PLUGIN_MENU_TYPE_CHANNEL:
-			/* Channel contextmenu item was triggered. selectedItemID is the channelID of the selected channel */
+            /* Channel contextmenu item was triggered. selectedItemID is the channelID of the selected channel */
+
+            if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
+            {
+                ts3Functions.logMessage("Error querying server unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
+                return;
+            }
+
 			switch(menuItemID) {
 				case MENU_ID_CHANNEL_ENABLED:
                     /* Menu channel 1 Include was triggered */
-                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::ENABLED); // TODO: check status of each channel if we can
+                    g_voptions->set_channel_status(unique_serverid, selectedItemID, VolumeOptions::status::ENABLED); // TODO: check status of each channel if we can
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 1);
 					break;
 				case MENU_ID_CHANNEL_IGNORED:
 					/* Menu channel 2 Ignore was triggered */
-                    g_voptions->set_channel_status(selectedItemID, VolumeOptions::status::DISABLED);
+                    g_voptions->set_channel_status(unique_serverid, selectedItemID, VolumeOptions::status::DISABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 1);
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 0);
 					break;
@@ -1240,6 +1265,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			}
 			break;
 		case PLUGIN_MENU_TYPE_CLIENT:
+            /* Client contextmenu item was triggered. selectedItemID is the clientID of the selected client */
 
             if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, (anyID)selectedItemID, CLIENT_UNIQUE_IDENTIFIER, &uid) != ERROR_ok)
             {
@@ -1247,7 +1273,6 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
                 return;
             }
 
-			/* Client contextmenu item was triggered. selectedItemID is the clientID of the selected client */
 			switch(menuItemID) {
 				case MENU_ID_CLIENT_ENABLED:
                     /* Menu client 1 Include client was triggered */
@@ -1264,11 +1289,15 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 				default:
 					break;
 			}
-            ts3Functions.freeMemory(uid);
 			break;
 		default:
 			break;
 	}
+
+    if (unique_serverid)
+        ts3Functions.freeMemory(unique_serverid);
+    if (uid)
+        ts3Functions.freeMemory(uid);
 }
 
 /* This function is called if a plugin hotkey was pressed. Omit if hotkeys are unused. */

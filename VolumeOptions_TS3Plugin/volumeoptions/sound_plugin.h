@@ -56,12 +56,14 @@ public:
 
     enum status { DISABLED = 0, ENABLED};
 
+    typedef std::string uniqueServerID_t;
     typedef std::string uniqueClientID_t;
-    typedef uint64_t channelID_t;
+    typedef std::string uniqueChannelID_t; // server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><channelID_t>"
+    typedef uint64_t channelID_t; 
 
     // talk status, true if talking, false if not talking anymore. optional ownclient = true if we are talking
-    int process_talk(const bool talk_status, channelID_t channelID, uniqueClientID_t clientID,
-        bool ownclient = false);
+    int process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID, const channelID_t channelID,
+        const uniqueClientID_t uniqueClientID, const bool ownclient = false);
 
     vo::volume_options_settings get_current_settings() const; // TODO: minimize copies
     void set_settings(vo::volume_options_settings& settings);
@@ -70,16 +72,20 @@ public:
     float get_global_volume_reduction() const;
     void reset_data(); /* not used*/
 
-    void set_status(status s);
-    status get_status();
+    void set_status(const status s);
+    status get_status() const;
 
-    void set_channel_status(uint64_t channelID, status s);
-    status get_channel_status(uint64_t channelID);
+    void set_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t channelID, const status s);
+    status get_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t channelID) const;
     void reset_all_channels_settings();
 
-    void set_client_status(uniqueClientID_t clientID, status s);
-    status get_client_status(uniqueClientID_t clientID);
+    void set_client_status(const uniqueClientID_t uniqueClientID, const status s);
+    status get_client_status(const uniqueClientID_t uniqueClientID) const;
     void reset_all_clients_settings();
+
+    // returns server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><nonunique_channelID_t>"
+    inline uniqueChannelID_t get_unique_channelid(const uniqueServerID_t& uniqueServerID,
+        const channelID_t& nonunique_channelID) const;
 
 private:
 
@@ -98,11 +104,11 @@ private:
     /* clients marked as disabled */
     std::unordered_set<uniqueClientID_t> m_ignored_clients;
 
-    typedef std::unordered_map<channelID_t, std::unordered_set<uniqueClientID_t>> channel_info;
+    typedef std::unordered_map<uniqueChannelID_t, std::unordered_set<uniqueClientID_t>> channel_info;
     /* current enabled and disabled channels with activity (someone talking in it) */ //TODO use vector?
     std::unordered_map<status, channel_info> m_channels_with_activity;
     /* channels marked as disabled */
-    std::unordered_set<channelID_t> m_ignored_channels;
+    std::unordered_set<uniqueChannelID_t> m_ignored_channels;
 
     status m_status;
     bool m_someone_enabled_is_talking;

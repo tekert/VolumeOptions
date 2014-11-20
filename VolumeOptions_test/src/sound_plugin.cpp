@@ -383,7 +383,7 @@ void VolumeOptions::reset_data() // TODO: uhm
     VolumeOptions::restore_default_volume();
 }
 
-void VolumeOptions::set_status(status newstatus)
+void VolumeOptions::set_status(const status newstatus)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -407,22 +407,24 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
     return m_vo_settings;
 }
 
-VolumeOptions::status VolumeOptions::get_status()
+VolumeOptions::status VolumeOptions::get_status() const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     return m_status;
 }
-VolumeOptions::status VolumeOptions::get_channel_status(uint64_t channelID)
+VolumeOptions::status VolumeOptions::get_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t nonunique_channelID) const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    uniqueChannelID_t channelID(get_unique_channelid(uniqueServerID, nonunique_channelID));
 
     if (m_ignored_channels.count(channelID))
         return DISABLED;
 
     return ENABLED;
 }
-VolumeOptions::status VolumeOptions::get_client_status(uniqueClientID_t clientID)
+VolumeOptions::status VolumeOptions::get_client_status(const uniqueClientID_t clientID) const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -496,57 +498,68 @@ void VolumeOptions::reset_all_clients_settings()
 
 }
 
+inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(const uniqueServerID_t& uniqueServerID,
+    const channelID_t& nonunique_channelID) const
+{
+    // combine unique serverID with nonunique_channelid as a string to make a uniqueChannelID (somewhat)
+    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID));
+}
+
 /*
     Marks channels as disabled for auto volume change when volume options is running
 */
-void VolumeOptions::set_channel_status(uint64_t channelID, status s)
+void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t channelID,
+    const status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
 
     // Move channels from containers to tag them if they have activity (someone inside the channel is talking)
 
     if (s == status::DISABLED)
     {
         // if already ignored return
-        if (m_ignored_channels.count(channelID))
+        if (m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %llu Status: Already Disabled\n", channelID);
+            dprintf("VO_PLUGIN: Channel %s Status: Already Disabled\n", uniqueChannelID.c_str());
             return;
         }
 
-        m_ignored_channels.insert(channelID);
+        m_ignored_channels.insert(uniqueChannelID);
 
         // if channel currently has activity move it and all his clients to disabled.
-        if (m_channels_with_activity[ENABLED].count(channelID))
+        if (m_channels_with_activity[ENABLED].count(uniqueChannelID))
         {
             // move it.
-            m_channels_with_activity[DISABLED][channelID] = 
-                std::move(m_channels_with_activity[ENABLED][channelID]);
-            m_channels_with_activity[ENABLED].erase(channelID);
+            m_channels_with_activity[DISABLED][uniqueChannelID] =
+                std::move(m_channels_with_activity[ENABLED][uniqueChannelID]);
+            m_channels_with_activity[ENABLED].erase(uniqueChannelID);
         }
     }
     if (s == status::ENABLED)
     {
         // if already enabled return
-        if (!m_ignored_channels.count(channelID))
+        if (!m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %llu Status: Already Enabled\n", channelID);
+            dprintf("VO_PLUGIN: Channel %s Status: Already Enabled\n", uniqueChannelID.c_str());
             return;
         }
 
-        m_ignored_channels.erase(channelID);
+        m_ignored_channels.erase(uniqueChannelID);
 
         // Now move the channel and and all his clients back to enabled if currently has activity.
-        if (m_channels_with_activity[DISABLED].count(channelID))
+        if (m_channels_with_activity[DISABLED].count(uniqueChannelID))
         {
             // move it.
-            m_channels_with_activity[ENABLED][channelID] =
-                std::move(m_channels_with_activity[DISABLED][channelID]);
-            m_channels_with_activity[DISABLED].erase(channelID);
+            m_channels_with_activity[ENABLED][uniqueChannelID] =
+                std::move(m_channels_with_activity[DISABLED][uniqueChannelID]);
+            m_channels_with_activity[DISABLED].erase(uniqueChannelID);
         }
     }
 
-    dprintf("VO_PLUGIN: Channel %llu Status: %s\n", channelID, s == status::DISABLED ? "Disabled" : "Enabled");
+    dprintf("VO_PLUGIN: Channel %s Status: %s\n", uniqueChannelID.c_str(),
+        s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
     apply_status();
@@ -555,7 +568,7 @@ void VolumeOptions::set_channel_status(uint64_t channelID, status s)
 /*
     Marks clients as disabled for auto volume changes when volumeoptions is running.
 */
-void VolumeOptions::set_client_status(uniqueClientID_t clientID, status s)
+void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, const status s)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -564,43 +577,44 @@ void VolumeOptions::set_client_status(uniqueClientID_t clientID, status s)
     if (s == status::DISABLED)
     {
         // if already ignored return
-        if (m_ignored_clients.count(clientID))
+        if (m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %llu Status: Already Disabled\n", clientID);
+            dprintf("VO_PLUGIN: Client %s Status: Already Disabled\n", uniqueClientID.c_str());
             return;
         }
 
-        m_ignored_clients.insert(clientID);
+        m_ignored_clients.insert(uniqueClientID);
 
         // Move client to disabled status if currently talking.
-        if (m_clients_talking[ENABLED].count(clientID))
+        if (m_clients_talking[ENABLED].count(uniqueClientID))
         {
             // move it.
-            m_clients_talking[ENABLED].erase(clientID);
-            m_clients_talking[DISABLED].insert(clientID);
+            m_clients_talking[ENABLED].erase(uniqueClientID);
+            m_clients_talking[DISABLED].insert(uniqueClientID);
         }
     }
     if (s == status::ENABLED)
     {
         // if already enabled return
-        if (!m_ignored_clients.count(clientID))
+        if (!m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %llu Status: Already Enabled\n", clientID);
+            dprintf("VO_PLUGIN: Client %s Status: Already Enabled\n", uniqueClientID.c_str());
             return;
         }
 
-        m_ignored_clients.erase(clientID);
+        m_ignored_clients.erase(uniqueClientID);
 
         // Now move client back to enabled if currently talking
-        if (m_clients_talking[DISABLED].count(clientID))
+        if (m_clients_talking[DISABLED].count(uniqueClientID))
         {
             // move it.
-            m_clients_talking[DISABLED].erase(clientID);
-            m_clients_talking[ENABLED].insert(clientID);
+            m_clients_talking[DISABLED].erase(uniqueClientID);
+            m_clients_talking[ENABLED].insert(uniqueClientID);
         }
     }
 
-    dprintf("VO_PLUGIN: Client %llu Status: %s\n", clientID, s == status::DISABLED ? "Disabled" : "Enabled");
+    dprintf("VO_PLUGIN: Client %s Status: %s\n", uniqueClientID.c_str(),
+        s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
     apply_status();
@@ -651,25 +665,34 @@ int VolumeOptions::apply_status()
 /*
     Handler for TS3 onTalkStatusChangeEvent
 
+    talk_status     ->  true if currently talking, false otherwise
+    uniqueServerID  ->  TS3 unique virtual server ID
+    channelID       ->  Server local Channel ID (unique per server)
+    uniqueClientID  ->  TS3 client unique ID
+    ownclient       ->  optional TODO: remove it and add own client to ignored list.
+
     We use two sets:
     m_ignored_clients and m_ignored_channels -> stores marked clients and channels.
     m_clients_talking and m_channels_with_activity -> stores clientes and channels with someone currently talking.
 
     To make it easy and not deal with TS3 callbacks we simply track clients talking and store them, and when they
         stop talking we delete them.
-    NOTE: When clients stops talking because they are moved or etc, ts3 onTalkStatusChange will contain the destination
-        channel, not the original one, we correct that case here.
+    NOTE: When clients stops talking because they are moved or etc, ts3 onTalkStatusChange can contain the destination
+        channel, not the origin one, we correct that case here.
 */
-int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, uniqueClientID_t clientID,
-    bool ownclient)
+int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID,
+    const channelID_t channelID, const uniqueClientID_t uniqueClientID, const bool ownclient)
 {
     int r = 1;
 
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
+    // We mark channelIDs as unique combining its virtual server ID.
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
+    
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
     // TODO if user ignores himself well get incorrect count, fix it.
-    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(clientID))
+    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(uniqueClientID))
     {
         dprintf("VO_PLUGIN: We are talking.. do nothing\n");
         return r;
@@ -679,44 +702,44 @@ int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, u
     if (talk_status)
     {
         // Update client containers
-        if (m_ignored_clients.count(clientID))
-            m_clients_talking[DISABLED].insert(clientID);
+        if (m_ignored_clients.count(uniqueClientID))
+            m_clients_talking[DISABLED].insert(uniqueClientID);
         else
-            m_clients_talking[ENABLED].insert(clientID);
+            m_clients_talking[ENABLED].insert(uniqueClientID);
 
         // Update channel containers
-        if (m_ignored_channels.count(channelID))
-            m_channels_with_activity[DISABLED][channelID].insert(clientID);
+        if (m_ignored_channels.count(uniqueChannelID))
+            m_channels_with_activity[DISABLED][uniqueChannelID].insert(uniqueClientID);
         else
-            m_channels_with_activity[ENABLED][channelID].insert(clientID);
+            m_channels_with_activity[ENABLED][uniqueChannelID].insert(uniqueClientID);
 
 #ifdef _DEBUG
         // Care with this debug comments not to create a key, use .at()
         size_t enabled_size = 0, disabled_size = 0;
-        try { enabled_size = m_channels_with_activity.at(ENABLED).at(channelID).size();}
+        try { enabled_size = m_channels_with_activity.at(ENABLED).at(uniqueChannelID).size(); }
         catch (std::out_of_range) {}
-        try { disabled_size = m_channels_with_activity.at(DISABLED).at(channelID).size();}
+        try { disabled_size = m_channels_with_activity.at(DISABLED).at(uniqueChannelID).size(); }
         catch (std::out_of_range) {}
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%llu].size()= %llu\n",
-            channelID, enabled_size);
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%llu].size()= %llu\n",
-            channelID, disabled_size);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%s].size()= %llu\n",
+            uniqueChannelID.c_str(), enabled_size);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%s].size()= %llu\n",
+            uniqueChannelID.c_str(), disabled_size);
 #endif
 
     }
     else
     {
         // Delete them directly, we dont know here if cause of stop was disconnection, channel change etc
-        if (m_ignored_clients.count(clientID))
-            m_clients_talking[DISABLED].erase(clientID);
+        if (m_ignored_clients.count(uniqueClientID))
+            m_clients_talking[DISABLED].erase(uniqueClientID);
         else
-            m_clients_talking[ENABLED].erase(clientID);
+            m_clients_talking[ENABLED].erase(uniqueClientID);
 
 
         // Substract client from channel count, if empty delete it.
         // TS3FIXNOTE: When a client is moved from a channel the talk status false has the new channel, not the old..
         // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
-        channelID_t channelID_origin = channelID;
+        uniqueChannelID_t channelID_origin = uniqueChannelID;
         status channelID_origin_status;
         if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
         for (auto it_status : m_channels_with_activity)
@@ -725,7 +748,7 @@ int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, u
             // low overhead, usualy a client is in as many channels as servers.
             for (auto it_cinfo : m_channels_with_activity[it_status.first])
             {
-                if (it_cinfo.second.count(clientID)) 
+                if (it_cinfo.second.count(uniqueClientID))
                 { 
                     channelID_origin = it_cinfo.first; 
                     goto done; // break nested with goto
@@ -734,7 +757,7 @@ int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, u
         }
         done:
         // Now we got the real channel from where the client stopped talking, remove the client.
-        m_channels_with_activity[channelID_origin_status][channelID_origin].erase(clientID);
+        m_channels_with_activity[channelID_origin_status][channelID_origin].erase(uniqueClientID);
         // if this was the last client from the channel talking delete the channel.
         if (m_channels_with_activity[channelID_origin_status][channelID_origin].empty())
             m_channels_with_activity[channelID_origin_status].erase(channelID_origin);
@@ -742,12 +765,12 @@ int VolumeOptions::process_talk(const bool talk_status, channelID_t channelID, u
 #ifdef _DEBUG
         // Care with this debug comments not to create a key, use .at()
         size_t enabled_size = 0, disabled_size = 0;
-        try { enabled_size = m_channels_with_activity.at(ENABLED).at(channelID).size();}
+        try { enabled_size = m_channels_with_activity.at(ENABLED).at(uniqueChannelID).size(); }
         catch (std::out_of_range) {}
-        try { disabled_size = m_channels_with_activity.at(DISABLED).at(channelID).size();}
+        try { disabled_size = m_channels_with_activity.at(DISABLED).at(uniqueChannelID).size(); }
         catch (std::out_of_range) {}
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%llu].size()= %llu\n", channelID, enabled_size);
-        dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%llu].size()= %llu\n", channelID, disabled_size);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[ENABLED][%s].size()= %llu\n", uniqueChannelID.c_str(), enabled_size);
+        dprintf("VO_PLUGIN: Update: m_channels_with_activity[DISABLED][%s].size()= %llu\n", uniqueChannelID.c_str(), disabled_size);
 #endif
 
     }
