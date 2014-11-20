@@ -468,11 +468,14 @@ enum {
  */
 void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum PluginItemType type, char** data) 
 {
-	char* name = 0;
+	char* name = NULL;
     char vo_status[INFODATA_BUFSIZE];
     VolumeOptions::status s;
-    char* uid = 0;
-    char* unique_serverid = 0;
+    char* uid = NULL;
+    char* unique_serverid = NULL;
+
+    char* color_disabled = "[color=#EDB7B7]Disabled";
+    char* color_enabled =  "[color=#6969FF]Enabled";
 
 	/* For demonstration purpose, display the name of the currently selected server, channel or client. */
 	switch(type) 
@@ -486,7 +489,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
             // TODO: global is not the same as server.. change this.
             s = g_voptions->get_status();
             snprintf(vo_status, INFODATA_BUFSIZE, "Server [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
 			break;
 
@@ -503,7 +506,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 
             s = g_voptions->get_channel_status(unique_serverid, id);
             snprintf(vo_status, INFODATA_BUFSIZE, "Channel [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
             if (s == VolumeOptions::DISABLED)
             {
@@ -531,7 +534,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 
             s = g_voptions->get_client_status(uid);
             snprintf(vo_status, INFODATA_BUFSIZE, "Client [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? "[color=#EDB7B7]Disabled" : "[color=#6969FF]Enabled");
+                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
             if (s == VolumeOptions::DISABLED)
             {
@@ -896,7 +899,7 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
         ts3Functions.logMessage("Error querying channel ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
         return;
     }   
-    char* uid = 0;
+    char* uid = NULL;
     if (clientID == myID)
     {
         if (ts3Functions.getClientSelfVariableAsString(serverConnectionHandlerID, CLIENT_UNIQUE_IDENTIFIER, &uid) != ERROR_ok)
@@ -913,14 +916,14 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
             return;
         }
     }
-    char* unique_serverid = 0;
+    char* unique_serverid = NULL;
     if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
     {
         ts3Functions.logMessage("Error querying server unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
         return;
     }
 
-    
+    /* heh so much code for these next lines.. */
 	if (status == STATUS_TALKING) 
     {
         printf("VO_PLUGIN_INT:  %hu [%s] starts talking\n", clientID, uid);
@@ -1204,8 +1207,8 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 	printf("VO_PLUGIN_INT: onMenuItemEvent: serverConnectionHandlerID=%llu, type=%d, menuItemID=%d, selectedItemID=%llu\n",
         (long long unsigned int)serverConnectionHandlerID, type, menuItemID, (long long unsigned int)selectedItemID);
 	
-    char* uid = 0;
-    char* unique_serverid = 0;
+    char* uid = NULL;
+    char* unique_serverid = NULL;
 
     switch(type) {
 		case PLUGIN_MENU_TYPE_GLOBAL:

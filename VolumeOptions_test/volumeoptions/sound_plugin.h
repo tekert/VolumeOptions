@@ -51,26 +51,26 @@ class VolumeOptions
 {
 public:
 
-    VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath);
+    VolumeOptions(const vo::volume_options_settings& settings, const std::string& sconfigPath);
     ~VolumeOptions();
 
     enum status { DISABLED = 0, ENABLED};
 
-    typedef std::string uniqueServerID_t;
-    typedef std::string uniqueClientID_t;
-    typedef std::string uniqueChannelID_t; // server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><channelID_t>"
-    typedef uint64_t channelID_t; 
+    typedef std::string uniqueServerID_t; // TS3 Virtual Server unique ID
+    typedef std::string uniqueClientID_t; // TS3 global client unique ID
+    typedef std::string uniqueChannelID_t; // TS3 server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><channelID_t>"
+    typedef uint64_t channelID_t; // TS3 local server channel ID
 
     // talk status, true if talking, false if not talking anymore. optional ownclient = true if we are talking
     int process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID, const channelID_t channelID,
         const uniqueClientID_t uniqueClientID, const bool ownclient = false);
 
-    vo::volume_options_settings get_current_settings() const; // TODO: minimize copies
+    vo::volume_options_settings get_current_settings() const; // TODO: minimize copies, separate audio monitor settings
     void set_settings(vo::volume_options_settings& settings);
 
     void restore_default_volume();
     float get_global_volume_reduction() const;
-    void reset_data(); /* not used*/
+    void reset_data(); /* not used */
 
     void set_status(const status s);
     status get_status() const;
@@ -83,7 +83,7 @@ public:
     status get_client_status(const uniqueClientID_t uniqueClientID) const;
     void reset_all_clients_settings();
 
-    // returns server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><nonunique_channelID_t>"
+    // returns server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><channelID_t>"
     inline uniqueChannelID_t get_unique_channelid(const uniqueServerID_t& uniqueServerID,
         const channelID_t& nonunique_channelID) const;
 
@@ -98,7 +98,6 @@ private:
 
     vo::volume_options_settings m_vo_settings;
 
-    // TODO: make the channels IDs unique somehow.... combine serverID tab with channel?
     /* current disabled and enabled clients talking */
     std::unordered_map<status, std::unordered_set<uniqueClientID_t>> m_clients_talking;
     /* clients marked as disabled */

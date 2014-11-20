@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 /*
-
     WINDOWS 7+ or Server 2008 R2+ only
 
     SndVol.exe auto volume manager
@@ -89,7 +88,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
 
 class AudioMonitor;
 /*
-    Represents a Single windows Audio Session
+    Represents a single windows Audio Session
 
     TODO: make it nested class of audiomonitor for now.
 */
@@ -154,6 +153,7 @@ private:
 };
 
 // TODO: maybe use a multiindex map on monitor so we have fast acces to up_delay_timer throgh another type index
+// UPDATE: uhmm, better not, its almost the same code management.
 struct sessions
 {
     //std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
@@ -248,13 +248,13 @@ private:
     typedef std::pair<std::wstring, std::shared_ptr<AudioSession>> t_session_pair;
 
     friend class AudioSession;
-    friend class AudioCallbackProxy; /* To select wich private methods others classes can acess */
+    friend class AudioCallbackProxy; /* To select wich private methods others classes can access */
 
     /* To sync Events with main class without "blocking" (async)
         or we cause mem leaks on simultaneous callbacks (confirmed) */
     std::shared_ptr<boost::asio::io_service> m_io;
     bool m_abort;
-    std::thread m_thread_monitor; /* poll thread */
+    std::thread m_thread_monitor; /* main class thread */
 
     mutable std::recursive_mutex m_mutex;
 };
