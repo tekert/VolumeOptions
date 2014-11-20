@@ -535,7 +535,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
             }
 
-            ts3Functions.freeMemory(&uid);
+            ts3Functions.freeMemory(uid);
 			break;
 
 		default:
@@ -918,7 +918,7 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
         }
 	}
 
-    ts3Functions.freeMemory(&uid);
+    ts3Functions.freeMemory(uid);
 
 // Original test SDK:
 #if 0
@@ -1264,7 +1264,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 				default:
 					break;
 			}
-            ts3Functions.freeMemory(&uid);
+            ts3Functions.freeMemory(uid);
 			break;
 		default:
 			break;
