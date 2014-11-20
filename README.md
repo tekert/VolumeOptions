@@ -22,11 +22,13 @@ Solution and projects provided to build on windows Visual Studio 2013.
   Its configured on default to reduce volume of other sessions conserving default user volume on restore, on windows it supports auto detection of new sessions, delete expired sessions, detects duplicate audio processes and acts acordingly, also fixing some windows perks about same process's session default volume.
   
   
-  Its built to not mess with user configuration in any way, if software forced to end before shutdown sesions will be left in non default state, in that case there is nothing we can do exept wait for user to manualy readjust.
+  Its built to not mess with user configuration in any way, if its is forced to end before shutdown sesions will be left in non default state, in that case there is nothing we can do exept wait for user to manualy readjust.
 
 Currently in development phase for later integrating it on Team Speak 3 and other communication software for windows, maybe linux in near future.
 
 ####Build:
+Only windows for now.
+
 Edit vo_paths.props with the path to boost includes, 32 and 64 path libraries.
 
 Launch solution and simply build. (boost::system is statically linked)

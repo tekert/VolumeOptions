@@ -556,7 +556,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         // if already ignored return
         if (m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %s Status: Already Disabled\n", uniqueChannelID.c_str());
+            printf("VO_PLUGIN: Channel %s Status: Already Disabled\n", uniqueChannelID.c_str());
             return;
         }
 
@@ -576,7 +576,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         // if already enabled return
         if (!m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %s Status: Already Enabled\n", uniqueChannelID.c_str());
+            printf("VO_PLUGIN: Channel %s Status: Already Enabled\n", uniqueChannelID.c_str());
             return;
         }
 
@@ -592,7 +592,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         }
     }
 
-    dprintf("VO_PLUGIN: Channel %s Status: %s\n", uniqueChannelID.c_str(),
+    printf("VO_PLUGIN: Channel %s Status: %s\n", uniqueChannelID.c_str(),
         s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
@@ -613,7 +613,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         // if already ignored return
         if (m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %s Status: Already Disabled\n", uniqueClientID.c_str());
+            printf("VO_PLUGIN: Client %s Status: Already Disabled\n", uniqueClientID.c_str());
             return;
         }
 
@@ -632,7 +632,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         // if already enabled return
         if (!m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %s Status: Already Enabled\n", uniqueClientID.c_str());
+            printf("VO_PLUGIN: Client %s Status: Already Enabled\n", uniqueClientID.c_str());
             return;
         }
 
@@ -647,7 +647,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         }
     }
 
-    dprintf("VO_PLUGIN: Client %s Status: %s\n", uniqueClientID.c_str(),
+    printf("VO_PLUGIN: Client %s Status: %s\n", uniqueClientID.c_str(),
         s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses

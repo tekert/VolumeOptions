@@ -191,6 +191,7 @@ void print_backtrace(char* out, int len, int max_depth) {}
 
 
 #include <signal.h>
+#include <boost/detail/atomic_count.hpp>
 
 #if VO_WRITE_TO_FILE_ASSERTS
 char const* vo_assert_log = "vo_asserts.log";

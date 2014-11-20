@@ -111,7 +111,7 @@ public:
 
 private:
     AudioSession(IAudioSessionControl *pSessionControl,
-        AudioMonitor& m_AudioMonitor, float default_volume = -1.0f);
+        std::weak_ptr<AudioMonitor> spAudioMonitor, float default_volume = -1.0f);
 
     void InitEvents();
     void StopEvents();
@@ -145,7 +145,7 @@ private:
     IAudioSessionEvents *m_pAudioEvents;
     IAudioSessionControl2* m_pSessionControl2;
     ISimpleAudioVolume* m_pSimpleAudioVolume;
-    AudioMonitor& m_AudioMonitor;  // To witch monitor it blongs
+    std::weak_ptr<AudioMonitor> m_wpAudioMonitor;  // To witch monitor it blongs
 
     /* Only this class can manage this object in thread safe way */
     friend class AudioMonitor;
@@ -235,7 +235,7 @@ private:
     // Used to delay or cancel all volume restores  session_this_pointer -> timer
     std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores; //TODO: try to merge it with saved_sessions, new container or class
 
-    bool m_auto_change_volume_flag;
+    bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
     monitor_status_t m_current_status;
 
     // Main sessions container type
