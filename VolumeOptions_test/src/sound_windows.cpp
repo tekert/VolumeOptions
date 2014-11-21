@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Audiopolicy.h>
 #include <Mmdeviceapi.h>
 #include <Endpointvolume.h>
+#include <Functiondiscoverykeys_devpkey.h>  // MMDeviceAPI.h must come first
 
 // Visual C++ pragmas, or add these libs manualy
 #pragma comment(lib, "ole32.lib")
@@ -72,6 +73,8 @@ DEFINE_GUID(GUID_VO_CONTEXT_EVENT_ZERO, 0x00000000L, 0x0000, 0x0000,
 static const GUID GUID_VO_CONTEXT_EVENT =
 { 0xd2c1bb1f, 0x47d8, 0x48bf, { 0xac, 0x69, 0x7e, 0x4e, 0x7b, 0x2d, 0xb6, 0xbf } };
 
+std::set<std::wstring> AudioMonitor::m_current_moniting_deviceids;
+std::mutex AudioMonitor::m_static_set_access;
 
 /*
     C++ idiom : Friendship and the Attorney-Client
@@ -1061,8 +1064,9 @@ void AudioSession::set_time_active_since()
 //////////////////////////////////////   Audio Monitor //////////////////////////////////////
 
 
-AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
+AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id)
     : m_current_status(STOPPED)
+    , m_wsDeviceID(device_id)
     , m_auto_change_volume_flag(false)
     , m_settings(settings)
     , m_pSessionEvents(NULL)
@@ -1097,7 +1101,7 @@ AudioMonitor::~AudioMonitor()
     // Exit MonitorThread
     m_abort = true;
     m_io->stop();
-    // define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
+    // NOTE: define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
     //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
     //  it has no pending handlers to run (empty queue only).
     m_thread_monitor.join(); // wait to finish
@@ -1110,6 +1114,9 @@ AudioMonitor::~AudioMonitor()
 
     SAFE_RELEASE(m_pSessionEvents);
     SAFE_RELEASE(m_pSessionManager2);
+
+    std::lock_guard<std::mutex> l(m_static_set_access);
+    m_current_moniting_deviceids.erase(m_wsDeviceID);
 
     dprintf("\n\t...AudioMonitor destroyed succesfuly.\n");
 }
@@ -1141,7 +1148,7 @@ void AudioMonitor::poll()
 
     // IMPORTANT: call CoInitializeEx in this thread. not in constructors thread
     dprintf("AudioMonitor CreateSessionManager() on monitor thread\n");
-    HRESULT hr = CreateSessionManager();
+    HRESULT hr = GetSessionManager();
     if (FAILED(hr))
         throw hr;
 
@@ -1215,24 +1222,127 @@ done:
     return hr;
 }
 
+std::set<std::wstring> AudioMonitor::GetCurrentMonitoredEndpoints()
+{
+    std::lock_guard<std::mutex> l(m_static_set_access);
+
+    return m_current_moniting_deviceids;
+}
+
+/*
+    Handy Method to enumerates all audio endpoints devices.
+
+    This method can be used to obtain ids of audio endpoint and use them on AudioMonitor constructor.
+    Returns a map of wstrings DeviceIDs -> FriendlyName. Use desired wstring DeviceID on AudioMonitor creation.
+
+    dwStateMask posible values are:
+    http://msdn.microsoft.com/en-us/library/windows/desktop/dd370823%28v=vs.85%29.aspx
+    they are used on this call:
+    http://msdn.microsoft.com/en-us/library/windows/desktop/dd371400%28v=vs.85%29.aspx dwStateMask [in]
+
+    On this method you have to manually check return on error.
+*/
+HRESULT AudioMonitor::GetEndpointsInfo(std::map<std::wstring, std::wstring>& audio_endpoints, DWORD dwStateMask)
+{
+    HRESULT hr = S_OK;
+    IMMDeviceEnumerator *pEnumerator = NULL;
+    IMMDeviceCollection *pCollection = NULL;
+    IMMDevice *pEndpoint = NULL;
+    IPropertyStore *pProps = NULL;
+    LPWSTR pwszID = NULL;
+    bool uninitialize_com = true;
+
+    audio_endpoints.clear();
+
+    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if ((hr == RPC_E_CHANGED_MODE) || (hr == S_FALSE))
+        uninitialize_com = false;
+
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+        (void**)&pEnumerator);
+    CHECK_HR(hr)
+    
+    // DEVICE_STATE_ACTIVE by default
+    hr = pEnumerator->EnumAudioEndpoints(eRender, dwStateMask, &pCollection);
+    CHECK_HR(hr)
+
+    UINT  count;
+    hr = pCollection->GetCount(&count);
+    CHECK_HR(hr)
+
+    if (count == 0)
+    {
+        printf("No endpoints found.\n");
+    }
+
+    // Each loop prints the name of an endpoint device.
+    for (ULONG i = 0; i < count; i++)
+    {
+        // Get pointer to endpoint number i.
+        hr = pCollection->Item(i, &pEndpoint);
+        CHECK_HR(hr)
+
+        // Get the endpoint ID string.
+        hr = pEndpoint->GetId(&pwszID);
+        CHECK_HR(hr)
+
+        hr = pEndpoint->OpenPropertyStore(STGM_READ, &pProps);
+        CHECK_HR(hr)
+
+        PROPVARIANT varName;
+        // Initialize container for property value.
+        PropVariantInit(&varName);
+
+        // Get the endpoint's friendly-name property.
+        hr = pProps->GetValue(PKEY_Device_FriendlyName, &varName);
+        CHECK_HR(hr)
+
+        // Print endpoint friendly name and endpoint ID.
+        audio_endpoints[pwszID] = varName.pwszVal;
+
+        CoTaskMemFree(pwszID);
+        pwszID = NULL;
+        PropVariantClear(&varName);
+        SAFE_RELEASE(pProps)
+        SAFE_RELEASE(pEndpoint)
+    }
+
+done:
+    if (FAILED(hr))
+        printf("Error getting audio endpoints list\n");
+
+    CoTaskMemFree(pwszID);
+    SAFE_RELEASE(pEnumerator)
+    SAFE_RELEASE(pCollection)
+    SAFE_RELEASE(pEndpoint)
+    SAFE_RELEASE(pProps)
+
+    if (uninitialize_com)
+        CoUninitialize();
+
+    return hr;
+}
+
 /*
     Creates the IAudioSessionManager instance on default output device
 */
-HRESULT AudioMonitor::CreateSessionManager()
+HRESULT AudioMonitor::GetSessionManager()
 {
     HRESULT hr = S_OK;
 
     IMMDevice* pDevice = NULL;
     IMMDeviceEnumerator* pEnumerator = NULL;
 
+    std::unique_lock<std::mutex> l(m_static_set_access);
+
     // Call this from the threads doing work on WAPI interfaces. (in this case AudioMonitor thread)
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     if (hr == S_FALSE)
-        printf("AudioMonitor::CreateSessionManager  CoInitializeEx: The COM library is already initialized on "
+        printf("AudioMonitor::GetSessionManager  CoInitializeEx: The COM library is already initialized on "
         "this thread.");
     if (hr == RPC_E_CHANGED_MODE)
-        printf("AudioMonitor::CreateSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
+        printf("AudioMonitor::GetSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
         "the concurrency model for this thread ");
 
     dprintf("AudioMonitor CreateSessionManager() Creating Manager2 instance...\n");
@@ -1245,11 +1355,31 @@ HRESULT AudioMonitor::CreateSessionManager()
         (void**)&pEnumerator));
     assert(pEnumerator != NULL);
 
-    // Get the default audio device.
-    CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
-    assert(pDevice != NULL);
+    // If user specified and endpoint ID to monitor, use it, if not use default.
+    if (m_wsDeviceID.empty())
+    {
+        // Get the default audio device.
+        CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
+        assert(pDevice != NULL);
 
-    // Get the session manager.
+        LPWSTR pwszID = NULL;
+        CHECK_HR(hr = pDevice->GetId(&pwszID));
+        m_wsDeviceID = pwszID;
+        CoTaskMemFree(pwszID);
+    }
+    else
+    {
+        // Get user specified device using its device id.
+        CHECK_HR(hr = pEnumerator->GetDevice(m_wsDeviceID.c_str(), &pDevice));
+    }
+
+    // if we are already monitoring this endpoint, abort
+    if (m_current_moniting_deviceids.count(m_wsDeviceID))
+        throw "Already monitoring this endpoint";
+    // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
+    m_current_moniting_deviceids.insert(m_wsDeviceID);
+
+    // Get the session manager. (this will fail on vista and below)
     CHECK_HR(hr = pDevice->Activate(
         __uuidof(IAudioSessionManager2), CLSCTX_ALL,
         NULL, (void**)&m_pSessionManager2));
@@ -1305,7 +1435,6 @@ HRESULT AudioMonitor::RefreshSessions()
     const bool unref_there = false;
     for (int index = 0; index < cbSessionCount; index++)
     {
-
         // Get the <n>th session.
         CHECK_HR(hr = pSessionList->GetSession(index, &pSessionControl));
 

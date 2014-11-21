@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <SDKDDKVer.h>
 #include <Audiopolicy.h>
+#include <Mmdeviceapi.h>
 
 #include <unordered_map>
 #include <utility>
@@ -57,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <set>
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/vo_settings.h"
@@ -186,6 +188,11 @@ public:
     AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
     ~AudioMonitor();
 
+    /* audio_endpoints: returns a DeviceID -> DeviceName map with current audio rendering devices */
+    static HRESULT GetEndpointsInfo(std::map<std::wstring, std::wstring>& audio_endpoints,
+        DWORD dwStateMask = DEVICE_STATE_ACTIVE);
+    static std::set<std::wstring> GetCurrentMonitoredEndpoints();
+
     float GetVolumeReductionLevel();
     void SetSettings(vo::monitor_settings& settings);
     vo::monitor_settings GetSettings();
@@ -201,18 +208,19 @@ public:
 #endif
     enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
     monitor_status_t GetStatus();
+    // Get
     std::shared_ptr<boost::asio::io_service> get_io();
 
 private:
 
-    AudioMonitor(const vo::monitor_settings& settings);
+    AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
     void poll(); /* AudioMonitor thread loop */
 
-    HRESULT CreateSessionManager();
+    HRESULT GetSessionManager();
     HRESULT RefreshSessions();
     void DeleteSessions();
 
@@ -225,6 +233,9 @@ private:
 
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
+    std::wstring m_wsDeviceID; // current audio endpoint ID to monitor.
+    static std::set<std::wstring> m_current_moniting_deviceids;
+    static std::mutex m_static_set_access;
 
     // Settings
     DWORD m_processid;
