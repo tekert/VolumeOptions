@@ -80,7 +80,7 @@ for every case and maintain new code to adapt).
 we also store relative info to settings like delayed volume change etc, more info in code.
 
   Only one instance of this class can be created for each audio endpoint since we are controling a single
-interface OS wide. (currently not done)
+interface OS wide.
 
   The class is thread safe, as said, it runs in its own thread and all calls are sync'd with its own thread.
 in the case of windows callbacks, calls are async, to private methods (callbacks interfaces are friend)

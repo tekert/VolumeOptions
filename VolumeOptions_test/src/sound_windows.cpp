@@ -1083,6 +1083,21 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
     //if (IsEqualGUID(GUID_VO_CONTEXT_EVENT_ZERO, GUID_VO_CONTEXT_EVENT))
     //CHECK_HR(hr = CoCreateGuid(&GUID_VO_CONTEXT_EVENT));
 
+    dprintf("AudioMonitor GetSessionManager()...\n");
+    try 
+    { 
+        hr = GetSessionManager(); 
+        if (FAILED(hr))
+            throw std::exception("HRESULT ERROR ", hr); // TODO boost::error_codes
+    }
+    catch (std::exception& e)
+    { 
+        std::cerr << e.what();
+        m_current_status = AudioMonitor::INITERROR;
+        return; 
+    } // TODO error codes, log.
+    dprintf("AudioMonitor Got Device OK.\n");
+
     m_processid = GetCurrentProcessId();
 
     SetSettings(m_settings);
@@ -1093,18 +1108,28 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
     m_io.reset(new boost::asio::io_service);
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
-    dprintf("AudioMonitor init complete\n");
+    // queue a sync call, when it returns, thread init is complete and io_service is running.
+    monitor_status_t status = SYNC_CALL_RET<monitor_status_t>(m_io, &AudioMonitor::GetStatus, this);
+
+    dprintf("\t--AudioMonitor init complete--\n");
 }
 
 AudioMonitor::~AudioMonitor()
 {
-    // Exit MonitorThread
-    m_abort = true;
-    m_io->stop();
-    // NOTE: define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
-    //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
-    //  it has no pending handlers to run (empty queue only).
-    m_thread_monitor.join(); // wait to finish
+    if (!AudioMonitor::INITERROR)
+    {
+        // Exit MonitorThread
+        m_abort = true;
+        m_io->stop();
+        // NOTE: define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
+        //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
+        //  it has no pending handlers to run (empty queue only).
+        if (m_thread_monitor.joinable())
+            m_thread_monitor.join(); // wait to finish
+
+        std::lock_guard<std::mutex> l(m_static_set_access);
+        m_current_moniting_deviceids.erase(m_wsDeviceID);
+    }
 
     // Stop everything and restore to default state
     // Unregister Event callbacks before destruction
@@ -1114,9 +1139,6 @@ AudioMonitor::~AudioMonitor()
 
     SAFE_RELEASE(m_pSessionEvents);
     SAFE_RELEASE(m_pSessionManager2);
-
-    std::lock_guard<std::mutex> l(m_static_set_access);
-    m_current_moniting_deviceids.erase(m_wsDeviceID);
 
     dprintf("\n\t...AudioMonitor destroyed succesfuly.\n");
 }
@@ -1147,12 +1169,7 @@ void AudioMonitor::poll()
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // IMPORTANT: call CoInitializeEx in this thread. not in constructors thread
-    dprintf("AudioMonitor CreateSessionManager() on monitor thread\n");
-    HRESULT hr = GetSessionManager();
-    if (FAILED(hr))
-        throw hr;
-
-    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     dprintf("\n\t...AudioMonitor Thread Init\n\n");
 
@@ -1165,6 +1182,8 @@ void AudioMonitor::poll()
     expired_session_removal_timer->async_wait(std::bind(&AudioMonitor::DeleteExpiredSessions,
         this, std::placeholders::_1, expired_session_removal_timer));
 #endif
+
+    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
 
     // Call Dispatcher
     bool stop_loop = false;
@@ -1332,26 +1351,26 @@ HRESULT AudioMonitor::GetSessionManager()
 
     IMMDevice* pDevice = NULL;
     IMMDeviceEnumerator* pEnumerator = NULL;
+    LPWSTR pwszID = NULL;
+    bool uninitialize_com = true;
 
-    std::unique_lock<std::mutex> l(m_static_set_access);
+    std::lock_guard<std::mutex> l(m_static_set_access);
 
     // Call this from the threads doing work on WAPI interfaces. (in this case AudioMonitor thread)
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-
     if (hr == S_FALSE)
         printf("AudioMonitor::GetSessionManager  CoInitializeEx: The COM library is already initialized on "
         "this thread.");
     if (hr == RPC_E_CHANGED_MODE)
         printf("AudioMonitor::GetSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
         "the concurrency model for this thread ");
+    if ((hr == RPC_E_CHANGED_MODE) || (hr == S_FALSE))
+        uninitialize_com = false;
 
-    dprintf("AudioMonitor CreateSessionManager() Creating Manager2 instance...\n");
+    dprintf("AudioMonitor CreateSessionManager() Getting Manager2 instance from device...\n");
 
     // Create the device enumerator.
-    CHECK_HR(hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator),
-        NULL, CLSCTX_ALL,
-        __uuidof(IMMDeviceEnumerator),
+    CHECK_HR(hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
         (void**)&pEnumerator));
     assert(pEnumerator != NULL);
 
@@ -1362,10 +1381,10 @@ HRESULT AudioMonitor::GetSessionManager()
         CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
         assert(pDevice != NULL);
 
-        LPWSTR pwszID = NULL;
         CHECK_HR(hr = pDevice->GetId(&pwszID));
         m_wsDeviceID = pwszID;
         CoTaskMemFree(pwszID);
+        pwszID = NULL;
     }
     else
     {
@@ -1375,7 +1394,7 @@ HRESULT AudioMonitor::GetSessionManager()
 
     // if we are already monitoring this endpoint, abort
     if (m_current_moniting_deviceids.count(m_wsDeviceID))
-        throw "Already monitoring this endpoint";
+        throw std::exception("Already monitoring this endpoint");
     // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
     m_current_moniting_deviceids.insert(m_wsDeviceID);
 
@@ -1391,8 +1410,13 @@ HRESULT AudioMonitor::GetSessionManager()
    // CHECK_HR(hr = DuckingOptOut(true, m_pSessionManager2));
 
 done:
+    if (pwszID)
+        CoTaskMemFree(pwszID);
     SAFE_RELEASE(pEnumerator);
     SAFE_RELEASE(pDevice);
+
+    if (uninitialize_com)
+        CoUninitialize();
 
     return hr;
 }
