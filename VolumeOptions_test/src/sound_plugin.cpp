@@ -108,8 +108,8 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     in.close();
 
     // Create the audio monitor
-    //m_paudio_monitor = std::make_shared<AudioMonitor>(m_vo_settings.monitor_settings);
     m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
+    //m_paudio_monitor = std::make_shared<AudioMonitor>(m_vo_settings.monitor_settings);
     //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_vo_settings.monitor_settings));
 
 #ifdef _DEBUG

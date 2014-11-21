@@ -1084,7 +1084,7 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings)
     SetSettings(m_settings);
 
     // Start thread after pre init is complete.
-    // m_current_status flag will be set to ok when thread is running.
+    // m_current_status flag will be set to ok when thread init is complete.
     m_current_status = AudioMonitor::INITERROR; 
     m_io.reset(new boost::asio::io_service);
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
@@ -1097,6 +1097,9 @@ AudioMonitor::~AudioMonitor()
     // Exit MonitorThread
     m_abort = true;
     m_io->stop();
+    // define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
+    //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
+    //  it has no pending handlers to run (empty queue only).
     m_thread_monitor.join(); // wait to finish
 
     // Stop everything and restore to default state
@@ -1108,7 +1111,7 @@ AudioMonitor::~AudioMonitor()
     SAFE_RELEASE(m_pSessionEvents);
     SAFE_RELEASE(m_pSessionManager2);
 
-    dprintf("\n\t...AudioMonitor Destroyed.\n");
+    dprintf("\n\t...AudioMonitor destroyed succesfuly.\n");
 }
 
 /*
@@ -1140,7 +1143,7 @@ void AudioMonitor::poll()
     dprintf("AudioMonitor CreateSessionManager() on monitor thread\n");
     HRESULT hr = CreateSessionManager();
     if (FAILED(hr))
-        throw;
+        throw hr;
 
     m_current_status = AudioMonitor::monitor_status_t::STOPPED;
 
@@ -1222,7 +1225,7 @@ HRESULT AudioMonitor::CreateSessionManager()
     IMMDevice* pDevice = NULL;
     IMMDeviceEnumerator* pEnumerator = NULL;
 
-    // Check if not already called.
+    // Call this from the threads doing work on WAPI interfaces. (in this case AudioMonitor thread)
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     if (hr == S_FALSE)
@@ -1232,7 +1235,7 @@ HRESULT AudioMonitor::CreateSessionManager()
         printf("AudioMonitor::CreateSessionManager  CoInitializeEx: A previous call to CoInitializeEx specified "
         "the concurrency model for this thread ");
 
-    dprintf("AudioMonitor CreateSessionManager() Creating instance...\n");
+    dprintf("AudioMonitor CreateSessionManager() Creating Manager2 instance...\n");
 
     // Create the device enumerator.
     CHECK_HR(hr = CoCreateInstance(
