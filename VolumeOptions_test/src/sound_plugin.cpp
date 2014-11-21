@@ -75,19 +75,28 @@ inline std::string wstring_to_utf8(const std::wstring& str)
 
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
+VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
+{
+    m_vo_settings = settings;
+    // nothing to parse from here, audiomonitor settings will be parsed when set.
 
-VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath)
+    VolumeOptions();
+}
+
+/*
+    Uses sconfigPath to search for "volumeoptions_plugin.ini" and load its settings
+        it will create and/or update the file if some options are missing.
+*/
+VolumeOptions::VolumeOptions(const std::string &sconfigPath)
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
 {
-    // Parse your settings, monitor_settings are parsed when aplying to monitor.
-    m_vo_settings = settings;
 
-    // Create config file
     std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
     std::fstream in(configFile, std::fstream::in);
     if (!in)
     {
+        // Create config file if it doesnt exists
         in.open(configFile, std::fstream::out | std::ios::trunc);
         if (!in)
             printf("VO_PLUGIN: Error creating config file %s\n", configFile.c_str()); // TODO: report it to log
@@ -98,32 +107,37 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     }
     else
     {
+        // Load config
+        // (monitor_settings are parsed when aplying to monitor).
         int ok = parse_config(in, configFile); // 0 on error.
         if (!ok)
         {
             printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
-            // TODO use TS3 client log.
+            // TODO use TS3 client log, we will use default settings.
         }
     }
     in.close();
 
-    // Create the audio monitor
+    VolumeOptions();
+}
+
+/* 
+    Basic, if config not set will load default settings always. 
+*/
+VolumeOptions::VolumeOptions()
+{
+    // Create the audio monitor and send settings to parse, it will return parsed settings.
     m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
 
-    //m_paudio_monitor = std::make_shared<AudioMonitor>(m_vo_settings.monitor_settings);
-    //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_vo_settings.monitor_settings));
-
 #ifdef _DEBUG
-    //m_paudio_monitor->Refresh(); // To debug current sessions enum quickly. not used much now. delete it later
+    //m_paudio_monitor->Refresh(); // TODO: To debug current sessions enum quickly. not used much now. delete it later
 #endif
-
 }
 
 VolumeOptions::~VolumeOptions()
 {
-    //VolumeOptions::restore_default_volume();
-
-    //m_paudio_monitor.reset();
+    // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
+    m_paudio_monitor.reset(); // just a example: remember to delete all shared_ptr references.
 }
 
 
@@ -373,7 +387,7 @@ void VolumeOptions::restore_default_volume()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Restoring per app user default volume\n");
+    printf("VO_PLUGIN: Forcing restore per app user default volume.\n");
 
     m_paudio_monitor->Stop();
 }
@@ -387,7 +401,7 @@ void VolumeOptions::reset_data() // Not used
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Reseting talk data\n");
+    printf("VO_PLUGIN: Reseting talk data.\n");
 
     reset_all_clients_settings();
     reset_all_channels_settings();

@@ -841,7 +841,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     HRESULT hr = S_OK;
 
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-    if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down.
+    if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down abort.
 
     const float &current_vol_reduction = spAudioMonitor->m_settings.ses_global_settings.vol_reduction;
     bool reduce_vol = true;
@@ -953,64 +953,72 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
 
     if (!is_volume_at_default)
     {
-        // callback_no_delay should be true when called from destructor or audiomonitor destructor...
-        std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-        if (!spAudioMonitor) callback_no_delay = resume_t::NO_DELAY; // AudioMonitor is currently shuting down.
-
-        // if delays are configured create asio timers to "self" call with callback_no_delay = true
-        //		timers are also stored on AudioMonitor to cancel them when necessary.
-        if (!callback_no_delay &&
-            (spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero()))
+        if (!callback_no_delay)
         {
+            // callback_no_delay should be true when chain called from AudioMonitor destructor...
+            std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
+            if (!spAudioMonitor) callback_no_delay = resume_t::NO_DELAY; // AudioMonitor is currently shuting down.
+
             std::shared_ptr<AudioSession> spAudioSession;
-            // play it safe, callback_no_delay should be true when called from destructor...
+            // play it safe, callback_no_delay should be true when called from AudioSession destructor...
             try { spAudioSession = this->shared_from_this(); }
-            catch (std::bad_weak_ptr&) { return hr; }
+            catch (std::bad_weak_ptr&) { callback_no_delay = resume_t::NO_DELAY; }
+
+            // if delays are configured create asio timers to "self" call with callback_no_delay = true
+            //		timers are also stored on AudioMonitor to cancel them when necessary.
+            if (!callback_no_delay && 
+                spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero())
+            {
+                std::shared_ptr<AudioSession> spAudioSession;
+                // play it safe, callback_no_delay should be true when called from AudioSession destructor...
+                try { spAudioSession = this->shared_from_this(); }
+                catch (std::bad_weak_ptr&) { return hr; }
 #ifdef _DEBUG
-            if (spAudioMonitor->m_pending_restores.find(this) != spAudioMonitor->m_pending_restores.end())
-                dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
+                if (spAudioMonitor->m_pending_restores.find(this) != spAudioMonitor->m_pending_restores.end())
+                    dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
                     "stopping old timer and replacing it... \n", getPID());
 #endif
-            // Create an async callback timer :)
-            // IMPORTANT: Delete timer from container when :
-            //		1. Callback is completed before return.
-            //		2. Volume is changed
-            //		3. Monitor is started/resumed (AudioMonitor)
-            //		4. A session is removed from container. (AudioMonitor)
-            //          to free AudioSession destructor sooner and delete caducated timer.
-            // NOTE: dont stop timers, delete or replace them to cancel timer.
-            // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
-            spAudioMonitor->m_pending_restores[this] =
-                ASYNC_CALL_DELAY(spAudioMonitor->m_io, spAudioMonitor->m_settings.ses_global_settings.vol_up_delay,
-                &AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1);
+                // Create an async callback timer :)
+                // IMPORTANT: Delete timer from container when :
+                //		1. Callback is completed before return.
+                //		2. Volume is changed
+                //		3. Monitor is started/resumed (AudioMonitor)
+                //		4. A session is removed from container. (AudioMonitor)
+                //          to free AudioSession destructor sooner and delete caducated timer.
+                // NOTE: dont stop timers, delete or replace them to cancel timer.
+                // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
+                spAudioMonitor->m_pending_restores[this] =
+                    ASYNC_CALL_DELAY(spAudioMonitor->m_io, spAudioMonitor->m_settings.ses_global_settings.vol_up_delay,
+                    &AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1);
 
-            dprintf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
+                dprintf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
 
 #if 0
-            // Create an async callback timer :)
-            std::unique_ptr<boost::asio::steady_timer> delay_timer =
-                std::make_unique<boost::asio::steady_timer>(*m_AudioMonitor.m_io);
-            delay_timer->expires_from_now(m_AudioMonitor.m_settings.vol_up_delay);
+                // Create an async callback timer :)
+                std::unique_ptr<boost::asio::steady_timer> delay_timer =
+                    std::make_unique<boost::asio::steady_timer>(*m_AudioMonitor.m_io);
+                delay_timer->expires_from_now(m_AudioMonitor.m_settings.vol_up_delay);
 #ifdef _DEBUG
-            if (m_AudioMonitor.m_pending_restores.find(this) != m_AudioMonitor.m_pending_restores.end())
-                dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
+                if (m_AudioMonitor.m_pending_restores.find(this) != m_AudioMonitor.m_pending_restores.end())
+                    dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
                     "stopping old timer and replacing it... \n", getPID());
 #endif
-            // IMPORTANT: Send a shared_ptr trough async call so we have something persistent to async!
-            delay_timer->async_wait(std::bind(&AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1));
-            // IMPORTANT: Delete timer from container when :
-            //		1. Callback is completed before return.
-            //		2. Volume is changed
-            //		3. A session is removed from container. (AudioMonitor)
-            //          to free AudioSession destructor.
-            // NOTE: dont stop timers, delete or replace them to cancel timer.
-            m_AudioMonitor.m_pending_restores[this] = std::move(delay_timer);
+                // IMPORTANT: Send a shared_ptr trough async call so we have something persistent to async!
+                delay_timer->async_wait(std::bind(&AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1));
+                // IMPORTANT: Delete timer from container when :
+                //		1. Callback is completed before return.
+                //		2. Volume is changed
+                //		3. A session is removed from container. (AudioMonitor)
+                //          to free AudioSession destructor.
+                // NOTE: dont stop timers, delete or replace them to cancel timer.
+                m_AudioMonitor.m_pending_restores[this] = std::move(delay_timer);
 
 #ifdef _DEBUG
-            printf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
+                printf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
 #endif
 #endif
-            return hr;
+                return hr;
+            }
         }
 
         // Now... restore

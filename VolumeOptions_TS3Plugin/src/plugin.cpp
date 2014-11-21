@@ -24,7 +24,7 @@
 #include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;
-static VolumeOptions* g_voptions; // our plugin main class
+static std::unique_ptr<VolumeOptions> g_voptions; // our plugin main class
 
 #ifdef _WIN32
 #define _strcpy(dest, destSize, src) strcpy_s(dest, destSize, src)
@@ -129,8 +129,9 @@ int ts3plugin_init() {
 	printf("VO_PLUGIN_INT: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
 	std::string sconfigPath(configPath);
-    vo::volume_options_settings settings;
-	g_voptions = new VolumeOptions(settings, sconfigPath); // tekert
+    g_voptions = std::make_unique<VolumeOptions>(sconfigPath);
+    if (!g_voptions)
+        return 1;
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable
@@ -143,8 +144,8 @@ void ts3plugin_shutdown() {
     /* Your plugin cleanup code here */
     printf("VO_PLUGIN_INT: shutdown\n");
 
-	g_voptions->restore_default_volume(); // tekert
-	delete g_voptions; // tekert
+    // Will automatically restore volume.
+    g_voptions.release();
 
 	/*
 	 * Note:
