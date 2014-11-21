@@ -52,13 +52,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Mmdeviceapi.h>
 
 #include <unordered_map>
+#include <set>
 #include <utility>
 #include <memory>
-#include <mutex>
 #include <thread>
-#include <chrono>
+#include <mutex>
+#include <condition_variable>
 #include <atomic>
-#include <set>
+#include <chrono>
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/vo_settings.h"
@@ -73,7 +74,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #ifndef CHECK_HR
-#define CHECK_HR(hr) if (FAILED(hr)) { assert(false); goto done;}
+#define CHECK_HR(hr) if (FAILED(hr)) { assert(false); goto done; }
 #endif
 
 #ifdef _DEBUG
@@ -90,7 +91,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
 
 class AudioMonitor;
 /*
-    Represents a single windows Audio Session
+    Represents a single WASAPI Audio Session to be managed by AudioMonitor
 
     TODO: make it nested class of audiomonitor for now.
 */
@@ -113,7 +114,7 @@ public:
 
 private:
     AudioSession(IAudioSessionControl *pSessionControl,
-        std::weak_ptr<AudioMonitor> spAudioMonitor, float default_volume = -1.0f);
+        std::weak_ptr<AudioMonitor> spAudioMonitor, float default_volume_fix = -1.0f);
 
     void InitEvents();
     void StopEvents();
@@ -140,6 +141,7 @@ private:
     std::wstring m_siid;
 
     mutable std::atomic<HRESULT> m_hrStatus;
+
     std::chrono::steady_clock::time_point m_last_modified_on;
     std::chrono::steady_clock::time_point m_last_active_state;
 
@@ -147,6 +149,7 @@ private:
     IAudioSessionEvents *m_pAudioEvents;
     IAudioSessionControl2* m_pSessionControl2;
     ISimpleAudioVolume* m_pSimpleAudioVolume;
+
     std::weak_ptr<AudioMonitor> m_wpAudioMonitor;  // To witch monitor it blongs
 
     /* Only this class can manage this object in thread safe way */
@@ -154,19 +157,14 @@ private:
     friend class AudioCallbackProxy;
 };
 
-// TODO: maybe use a multiindex map on monitor so we have fast acces to up_delay_timer throgh another type index
-// UPDATE: uhmm, better not, its almost the same code management.
-struct sessions
-{
-    //std::unique_ptr<boost::asio::steady_timer> up_delay_timer;
-    //std::shared_ptr<AudioSession> spAudioSession;
-};
-
 
 /*
-    Represents a windows Audio Manager, that containts current audio sessions
+    WASAPI Monitor manager main class, Monitors current audio sessions to change volume on,
+        based on customizable settings.
+    
+    Manages a single audio device per instance.
 
-    Use ::create() to instance the class, it will return a std::shared_ptr
+    Use ::create() to instance the class, it will return a std::shared_ptr.
 
     With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
         from this class.
@@ -178,7 +176,8 @@ class AudioMonitor : public std::enable_shared_from_this < AudioMonitor >
 {
 public:
     /* Created with STOPPED status */
-    // static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings) // if no variadic template support
+    // static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings,
+        //const std::wstring& device_id = L"")  // if no variadic template support
     template<typename ...T>
     static std::shared_ptr<AudioMonitor> create(T&&... all)
     {
@@ -197,11 +196,13 @@ public:
     void SetSettings(vo::monitor_settings& settings);
     vo::monitor_settings GetSettings();
 
-    /* If Resume is used shile Stopped will also Starts all events and refresh sessions. */
-    long Stop(); // Stops all events and deletes all saved sessions.
-    long Pause(); // Restores volume on all sessions and freezes volume change
-    long Start(); // Resumes/Starts volume change and reaplies settings.
-    long Refresh(); // Gets all current sessions in SndVol
+    /* If Resume is used while Stopped it will use Start() */
+    long Stop(); // Stops all events and deletes all saved sessions restoring default state.
+    long Pause(); // Restores volume on all sessions and freezes volume change.
+    long Start(); // Resumes/Starts volume change and reapplies settings.
+#ifdef _DEBUG
+    long Refresh(); // DEBUG Gets all current sessions in SndVol
+#endif
 #ifdef VO_ENABLE_EVENTS 
     long InitEvents();
     long StopEvents();
@@ -218,14 +219,14 @@ private:
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
-    void poll(); /* AudioMonitor thread loop */
+    void poll(); /* AudioMonitor main thread loop */
 
     HRESULT GetSessionManager();
     HRESULT RefreshSessions();
     void DeleteSessions();
 
     HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
-    void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // TODO: Not used yet
+    void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // Not used
     void DeleteExpiredSessions(boost::system::error_code const& e,
         std::shared_ptr<boost::asio::steady_timer> timer);
     void ApplySettings();
@@ -233,7 +234,7 @@ private:
 
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
-    std::wstring m_wsDeviceID; // current audio endpoint ID to monitor.
+    std::wstring m_wsDeviceID; // current audio endpoint ID beign monitored.
     static std::set<std::wstring> m_current_moniting_deviceids;
     static std::mutex m_static_set_access;
 
@@ -267,6 +268,13 @@ private:
     bool m_abort;
     std::thread m_thread_monitor; /* main class thread */
 
+    // used when posting synchronous function calls to audiomonitor
+    mutable std::mutex m_io_mutex;
+    mutable std::condition_variable m_cond;
+
+
+
+    // used to lock access to the class by only his own thread
     mutable std::recursive_mutex m_mutex;
 };
 

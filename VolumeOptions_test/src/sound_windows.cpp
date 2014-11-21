@@ -73,6 +73,7 @@ DEFINE_GUID(GUID_VO_CONTEXT_EVENT_ZERO, 0x00000000L, 0x0000, 0x0000,
 static const GUID GUID_VO_CONTEXT_EVENT =
 { 0xd2c1bb1f, 0x47d8, 0x48bf, { 0xac, 0x69, 0x7e, 0x4e, 0x7b, 0x2d, 0xb6, 0xbf } };
 
+
 std::set<std::wstring> AudioMonitor::m_current_moniting_deviceids;
 std::mutex AudioMonitor::m_static_set_access;
 
@@ -87,11 +88,14 @@ private:
     {
         return pam->SaveSession(pNewSessionControl, unref);
     }
-    // NOT USED, sessions not expiring
+    // NOT USED, sessions wont expire: 
+    // see http://msdn.microsoft.com/en-us/library/dd368281%28v=vs.85%29.aspx remarks last paragraph
+    // either way we manualy release sessions inactive for more than 2 min by defualt to compensate.
     static void DeleteSession(std::shared_ptr<AudioMonitor> pam, std::shared_ptr<AudioSession> spAudioSession)
     {
         pam->DeleteSession(spAudioSession);
     }
+
 
     static HRESULT ApplyVolumeSettings(std::shared_ptr<AudioSession> pas)
     {
@@ -119,29 +123,26 @@ private:
     friend class CSessionNotifications; /* needed for callbacks to access this class using async calls */
 };
 
-
 ///////////// Some exported helpers for async calls from other proyects of mine /////////////////////
 
 // Used to sync calls from other threads usign io_service. Used locally
 namespace
 {
-    std::recursive_mutex io_mutex;
-    std::condition_variable_any cond; // semaphore.
 
     template <class R>
-    void ret_sync_queue(R* ret, bool* done, std::condition_variable_any* e, std::recursive_mutex* m,
+    void ret_sync_queue(R* ret, bool* done, std::condition_variable* e, std::mutex* m,
         std::function<R(void)> f)
     {
         *ret = f();
-        std::lock_guard<std::recursive_mutex> l(*m);
+        std::lock_guard<std::mutex> l(*m);
         *done = true;
         e->notify_all();
     }
 
-    void sync_queue(bool* done, std::condition_variable_any* e, std::recursive_mutex* m, std::function<void(void)> f)
+    void sync_queue(bool* done, std::condition_variable* e, std::mutex* m, std::function<void(void)> f)
     {
         f();
-        std::lock_guard<std::recursive_mutex> l(*m);
+        std::lock_guard<std::mutex> l(*m);
         *done = true;
         e->notify_all();
     }
@@ -156,26 +157,28 @@ namespace
     }
 
     template <typename ft, typename... pt>
-    void SYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
+    void SYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, std::condition_variable& cond,
+        std::mutex& io_mutex, ft&& f, pt&&... args)
     {
         bool done = false;
         io->dispatch(std::bind(&sync_queue, &done, &cond, &io_mutex,
             std::function<void(void)>(std::bind(std::forward<ft>(f), std::forward<pt>(args)...))));
 
-        std::unique_lock<std::recursive_mutex> l(io_mutex);
+        std::unique_lock<std::mutex> l(io_mutex);
         while (!done) { cond.wait(l); };
         l.unlock();
     }
 
     template <typename rt, typename ft, typename... pt>
-    rt SYNC_CALL_RET(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
+    rt SYNC_CALL_RET(const std::shared_ptr<boost::asio::io_service>& io, std::condition_variable& cond,
+        std::mutex& io_mutex, ft&& f, pt&&... args)
     {
         bool done = false;
         rt r;
         io->dispatch(std::bind(&ret_sync_queue<rt>, &r, &done, &cond, &io_mutex,
             std::function<rt(void)>(std::bind(std::forward<ft>(f), std::forward<pt>(args)...))));
 
-        std::unique_lock<std::recursive_mutex> l(io_mutex);
+        std::unique_lock<std::mutex> l(io_mutex);
         while (!done) { cond.wait(l); };
         l.unlock();
         return r;
@@ -183,8 +186,7 @@ namespace
 
     template <typename dt, typename ft, typename... pt>
         std::unique_ptr<boost::asio::steady_timer>
-        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
-        dt&& tdelay, ft&& f, pt&&... args)
+        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io, dt&& tdelay, ft&& f, pt&&... args)
     {
         std::unique_ptr<boost::asio::steady_timer> delay_timer =
             std::make_unique<boost::asio::steady_timer>(*io, std::forward<dt>(tdelay));
@@ -1109,7 +1111,7 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
     // queue a sync call, when it returns, thread init is complete and io_service is running.
-    monitor_status_t status = SYNC_CALL_RET<monitor_status_t>(m_io, &AudioMonitor::GetStatus, this);
+    monitor_status_t status = SYNC_CALL_RET<monitor_status_t>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetStatus, this);
 
     dprintf("\t--AudioMonitor init complete--\n");
 }
@@ -1253,6 +1255,7 @@ std::set<std::wstring> AudioMonitor::GetCurrentMonitoredEndpoints()
 
     This method can be used to obtain ids of audio endpoint and use them on AudioMonitor constructor.
     Returns a map of wstrings DeviceIDs -> FriendlyName. Use desired wstring DeviceID on AudioMonitor creation.
+    http://msdn.microsoft.com/en-us/library/windows/desktop/dd370837%28v=vs.85%29.aspx (deviceIds)
 
     dwStateMask posible values are:
     http://msdn.microsoft.com/en-us/library/windows/desktop/dd370823%28v=vs.85%29.aspx
@@ -1405,7 +1408,7 @@ HRESULT AudioMonitor::GetSessionManager()
     assert(m_pSessionManager2);
 
    // Disable ducking experience and later restore it if it was enabled
-   // TODO: i dont know how to get current status to restore it later, better dont touch it then,
+   // NOTE: i dont know how to get current status to restore it later, better dont touch it then,
    //    let the user handle it.
    // CHECK_HR(hr = DuckingOptOut(true, m_pSessionManager2));
 
@@ -1792,7 +1795,7 @@ long AudioMonitor::Stop()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::Stop, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::Stop, this);
     }
     else
     {
@@ -1842,7 +1845,7 @@ long AudioMonitor::InitEvents()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::InitEvents, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::InitEvents, this);
     }
     else
     {
@@ -1881,7 +1884,7 @@ long AudioMonitor::StopEvents()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::StopEvents, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::StopEvents, this);
     }
     else
     {
@@ -1922,7 +1925,7 @@ long AudioMonitor::Pause()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::Pause, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::Pause, this);
     }
     else
     {
@@ -1975,7 +1978,7 @@ long AudioMonitor::Start()
     std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::Start, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::Start, this);
     }
     else
     {
@@ -2027,6 +2030,7 @@ long AudioMonitor::Start()
     return static_cast<long>(ret); // TODO: error codes
 }
 
+#ifdef _DEBUG
 /*
     Simple thread safe proxy, see AudioMonitor::RefreshSessions for more info.
 */
@@ -2039,7 +2043,7 @@ long AudioMonitor::Refresh()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<long>(m_io, &AudioMonitor::Refresh, this);
+        ret = SYNC_CALL_RET<long>(m_io, m_cond, m_io_mutex, &AudioMonitor::Refresh, this);
     }
     else
     {
@@ -2051,6 +2055,7 @@ long AudioMonitor::Refresh()
 
     return static_cast<long>(ret); // TODO: error codes
 }
+#endif
 
 /*
     Gets current config
@@ -2063,7 +2068,7 @@ vo::monitor_settings AudioMonitor::GetSettings()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<vo::monitor_settings>(m_io, &AudioMonitor::GetSettings, this);
+        ret = SYNC_CALL_RET<vo::monitor_settings>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetSettings, this);
     }
     else
     {
@@ -2085,7 +2090,7 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 
     if (!l.owns_lock())
     {
-        SYNC_CALL(m_io, &AudioMonitor::SetSettings, this, std::ref(settings));
+        SYNC_CALL(m_io, m_cond, m_io_mutex, &AudioMonitor::SetSettings, this, std::ref(settings));
     }
     else
     {
@@ -2121,7 +2126,9 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
         }
 
         // TODO: complete here when adding options, if compiler with different align is used, comment this line.
-        //static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
+#ifdef _DEBUG
+        static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
+#endif
 
 
 
@@ -2142,7 +2149,7 @@ float AudioMonitor::GetVolumeReductionLevel()
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<float>(m_io, &AudioMonitor::GetVolumeReductionLevel, this);
+        ret = SYNC_CALL_RET<float>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetVolumeReductionLevel, this);
     }
     else
     {
@@ -2163,7 +2170,7 @@ auto AudioMonitor::GetStatus() -> monitor_status_t
 
     if (!l.owns_lock())
     {
-        ret = SYNC_CALL_RET<monitor_status_t>(m_io, &AudioMonitor::GetStatus, this);
+        ret = SYNC_CALL_RET<monitor_status_t>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetStatus, this);
     }
     else
     {
@@ -2172,5 +2179,24 @@ auto AudioMonitor::GetStatus() -> monitor_status_t
 
     return ret;
 }
+
+#if 0 //TEST DELETE
+// Shortcut to sync/async calls
+template <typename ft, typename... pt>
+void AudioMonitor::ASYNC_CALL(ft&& f, pt&&... args)
+{
+    return ASYNC_CALL(m_io, std::forward<ft>(f), std::forward<pt>(args)...));
+}
+template <typename rt, typename ft, typename... pt>
+rt AudioMonitor::SYNC_CALL_RET(ft&& f, pt&&... args)
+{
+    return SYNC_CALL_RET<rt>(m_io, m_cond, m_io_mutex, std::forward<ft>(f), std::forward<pt>(args)...));
+}
+template <typename ft, typename... pt>
+void AudioMonitor::SYNC_CALL(ft&& f, pt&&... args)
+{
+    SYNC_CALL(m_io, m_cond, m_io_mutex, std::forward<ft>(f), std::forward<pt>(args)...));
+}
+#endif
 
 #endif

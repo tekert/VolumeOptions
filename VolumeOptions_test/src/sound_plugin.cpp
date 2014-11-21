@@ -723,7 +723,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
-    // TODO if user ignores himself well get incorrect count, fix it.
+    // TODO if user ignores himself well get incorrect count, fix it. revise this.
     if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(uniqueClientID))
     {
         dprintf("VO_PLUGIN: We are talking.. do nothing\n");
