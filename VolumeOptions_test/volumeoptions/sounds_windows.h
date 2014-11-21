@@ -114,17 +114,17 @@ public:
 
 private:
     AudioSession(IAudioSessionControl *pSessionControl,
-        std::weak_ptr<AudioMonitor> spAudioMonitor, float default_volume_fix = -1.0f);
+        const std::weak_ptr<AudioMonitor>& spAudioMonitor, float default_volume_fix = -1.0f);
 
     void InitEvents();
     void StopEvents();
 
-    float GetCurrentVolume();
+    float GetCurrentVolume() const;
     HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
-    void UpdateDefaultVolume(float new_def);
+    void UpdateDefaultVolume(const float new_def);
 
     enum resume_t { NORMAL = false, NO_DELAY = true };
-    HRESULT RestoreVolume(const resume_t callback_no_delay = NORMAL);
+    HRESULT RestoreVolume(resume_t callback_no_delay = NORMAL);
     void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
@@ -210,7 +210,7 @@ public:
     enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
     monitor_status_t GetStatus();
     // Get
-    std::shared_ptr<boost::asio::io_service> get_io();
+    std::shared_ptr<boost::asio::io_service> get_io() const;
 
 private:
 
@@ -225,12 +225,12 @@ private:
     HRESULT RefreshSessions();
     void DeleteSessions();
 
-    HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, bool unref);
+    HRESULT SaveSession(IAudioSessionControl* pNewSessionControl, const bool unref);
     void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // Not used
     void DeleteExpiredSessions(boost::system::error_code const& e,
         std::shared_ptr<boost::asio::steady_timer> timer);
     void ApplySettings();
-    bool isSessionExcluded(DWORD pid, std::wstring sid = L"");
+    bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
 
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;

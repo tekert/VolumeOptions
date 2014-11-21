@@ -90,7 +90,7 @@ private:
     }
     // NOT USED, sessions wont expire: 
     // see http://msdn.microsoft.com/en-us/library/dd368281%28v=vs.85%29.aspx remarks last paragraph
-    // either way we manualy release sessions inactive for more than 2 min by defualt to compensate.
+    //  either way, we manualy release sessions inactive for more than 2 min by defualt to compensate.
     static void DeleteSession(std::shared_ptr<AudioMonitor> pam, std::shared_ptr<AudioSession> spAudioSession)
     {
         pam->DeleteSession(spAudioSession);
@@ -125,10 +125,9 @@ private:
 
 ///////////// Some exported helpers for async calls from other proyects of mine /////////////////////
 
-// Used to sync calls from other threads usign io_service. Used locally
+// Used to sync calls from other threads usign io_service. Generic templates
 namespace
 {
-
     template <class R>
     void ret_sync_queue(R* ret, bool* done, std::condition_variable* e, std::mutex* m,
         std::function<R(void)> f)
@@ -296,8 +295,8 @@ protected:
 
 public:
 
-    CAudioSessionEvents(std::weak_ptr<AudioSession> pAudioSession,
-        std::weak_ptr<AudioMonitor> pAudioMonitor)
+    CAudioSessionEvents(const std::weak_ptr<AudioSession>& pAudioSession,
+        const std::weak_ptr<AudioMonitor>& pAudioMonitor)
         : _cRef(1)
         , m_pAudioSession(pAudioSession)
         , m_pAudioMonitor(pAudioMonitor)
@@ -446,7 +445,9 @@ public:
             ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::RestoreVolume, spAudioSession);
             ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::set_time_inactive_since, spAudioSession);
             break;
-        case AudioSessionStateExpired: // only pops if we dont retaing a reference to the session
+        case AudioSessionStateExpired:
+            // NOTE: Only pops if we dont retaing a reference to the session, so we wont, 
+            //  see AudioCallbackProxy::DeleteSession comments
             pszState = "expired";
             //ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::DeleteSession, spAudioMonitor,
             //  m_pAudioSession->getSIID());
@@ -497,8 +498,8 @@ class CAudioSessionEvents_fix : public CAudioSessionEvents
     ~CAudioSessionEvents_fix()
     {}
 
-    CAudioSessionEvents_fix(std::weak_ptr<AudioSession> pAudioSession,
-        std::weak_ptr<AudioMonitor> pAudioMonitor) :
+    CAudioSessionEvents_fix(const std::weak_ptr<AudioSession>& pAudioSession,
+        const std::weak_ptr<AudioMonitor>& pAudioMonitor) :
         CAudioSessionEvents(pAudioSession, pAudioMonitor)
     {}
 
@@ -525,7 +526,7 @@ class CSessionNotifications : public IAudioSessionNotification
 
 public:
 
-    CSessionNotifications(std::weak_ptr<AudioMonitor> pAudioMonitor)
+    CSessionNotifications(const std::weak_ptr<AudioMonitor>& pAudioMonitor)
         : m_cRefAll(1)
         , m_pAudioMonitor(pAudioMonitor)
     {}
@@ -606,7 +607,7 @@ public:
 //////////////////////////////////////   Audio Session //////////////////////////////////////
 
 
-AudioSession::AudioSession(IAudioSessionControl *pSessionControl, std::weak_ptr<AudioMonitor> wpAudioMonitor,
+AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::weak_ptr<AudioMonitor>& wpAudioMonitor,
     float default_volume)
     : m_default_volume(default_volume)
     , m_wpAudioMonitor(wpAudioMonitor)
@@ -626,7 +627,8 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, std::weak_ptr<
 
     // Fill static data first
     IAudioSessionControl2* pSessionControl2 = NULL;
-    CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
+    CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2),
+        (void**)&pSessionControl2));
     assert(pSessionControl2);
 
     LPWSTR siid = NULL;
@@ -806,7 +808,7 @@ DWORD AudioSession::getPID() const
     return m_pid;
 }
 
-float AudioSession::GetCurrentVolume()
+float AudioSession::GetCurrentVolume() const
 {
     float current_volume = -1.0f;
 
@@ -888,7 +890,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     That means we didnt change the volume. if not using events, defaults will be updated only when
         AudioMonitor is refreshing.
 */
-void AudioSession::UpdateDefaultVolume(float new_def)
+void AudioSession::UpdateDefaultVolume(const float new_def)
 {
     m_default_volume = new_def;
     touch();
@@ -944,23 +946,24 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
     callback_no_delay  -> optional parameter (default false) to indicate if we should
         create a callback timer (if configured to do so) or change vol directly.
 */
-HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
+HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
 {
     HRESULT hr = S_OK;
     assert(m_pSessionControl);
 
     if (!is_volume_at_default)
     {
+        // callback_no_delay should be true when called from destructor or audiomonitor destructor...
         std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-        if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down.
+        if (!spAudioMonitor) callback_no_delay = resume_t::NO_DELAY; // AudioMonitor is currently shuting down.
 
         // if delays are configured create asio timers to "self" call with callback_no_delay = true
         //		timers are also stored on AudioMonitor to cancel them when necessary.
-        if (!callback_no_delay && 
+        if (!callback_no_delay &&
             (spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero()))
         {
-            // play it safe, callback_no_delay should be true when called from destructor...
             std::shared_ptr<AudioSession> spAudioSession;
+            // play it safe, callback_no_delay should be true when called from destructor...
             try { spAudioSession = this->shared_from_this(); }
             catch (std::bad_weak_ptr&) { return hr; }
 #ifdef _DEBUG
@@ -974,7 +977,7 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
             //		2. Volume is changed
             //		3. Monitor is started/resumed (AudioMonitor)
             //		4. A session is removed from container. (AudioMonitor)
-            //          to free AudioSession destructor.
+            //          to free AudioSession destructor sooner and delete caducated timer.
             // NOTE: dont stop timers, delete or replace them to cancel timer.
             // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
             spAudioMonitor->m_pending_restores[this] =
@@ -1031,14 +1034,16 @@ HRESULT AudioSession::RestoreVolume(const resume_t callback_no_delay)
 void AudioSession::ChangeVolume(const float v)
 {
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-    if (!spAudioMonitor) return; // AudioMonitor is currently shuting down.
 
     ISimpleAudioVolume* pSimpleAudioVolume = NULL;
     CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&pSimpleAudioVolume));
     assert(pSimpleAudioVolume);
 
-    // IMPORTANT: Restore vol Timer is no longer needed, caducated.
-    spAudioMonitor->m_pending_restores.erase(this);
+    if (spAudioMonitor)
+    {
+        // IMPORTANT: Restore vol Timer is no longer needed, caducated.
+        spAudioMonitor->m_pending_restores.erase(this);
+    } // else  AudioMonitor is currently shuting down, m_pending_restores will be auto deleted.
 
     CHECK_HR(m_hrStatus = pSimpleAudioVolume->SetMasterVolume(v, &GUID_VO_CONTEXT_EVENT));
     touch();
@@ -1118,7 +1123,7 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
 
 AudioMonitor::~AudioMonitor()
 {
-    if (!AudioMonitor::INITERROR)
+    if (m_current_status != AudioMonitor::INITERROR)
     {
         // Exit MonitorThread
         m_abort = true;
@@ -1152,7 +1157,7 @@ AudioMonitor::~AudioMonitor()
     Warning: When class is destroyed, user will have to reset this pointer, is no longer useful.
     But it garantees it wont be destroyed when it has work to do.
 */
-std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io()
+std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io() const
 {
     return m_io;
 }
@@ -1573,7 +1578,7 @@ void AudioMonitor::ApplySettings()
 /*
     Return true if audio session is excluded from monitoring.
 */
-bool AudioMonitor::isSessionExcluded(DWORD pid, std::wstring sid)
+bool AudioMonitor::isSessionExcluded(const DWORD pid, std::wstring sid)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -1637,7 +1642,7 @@ bool AudioMonitor::isSessionExcluded(DWORD pid, std::wstring sid)
     IAudioSessionControl* pSessionControl  -> pointer to the new session
     bool unref  -> do we Release() inside this function or not? useful for async calls
 */
-HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, bool unref)
+HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const bool unref)
 {
     HRESULT hr = S_OK;
 

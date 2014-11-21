@@ -121,9 +121,9 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
 
 VolumeOptions::~VolumeOptions()
 {
-    VolumeOptions::restore_default_volume();
+    //VolumeOptions::restore_default_volume();
 
-    m_paudio_monitor.reset();
+    //m_paudio_monitor.reset();
 }
 
 
