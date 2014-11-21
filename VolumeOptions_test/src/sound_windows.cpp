@@ -563,7 +563,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE OnSessionCreated(IAudioSessionControl *pNewSessionControl)
     {
-        // Important, get a ref before an async call, windows deletes the object after return
+        // IMPORTANT: get a ref before an async call, windows deletes the object after return
         pNewSessionControl->AddRef();
 
         {
@@ -1190,7 +1190,7 @@ HRESULT DuckingOptOut(bool DuckingOptOutChecked, IAudioSessionManager2* pSession
     IAudioSessionControl2* pSessionControl2 = NULL;
     IAudioSessionControl* pSessionControl = NULL;
 
-    CHECK_HR(hr = pSessionManager2->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl));
+    CHECK_HR(hr = pSessionManager2->QueryInterface(__uuidof(IAudioSessionControl), (void**)&pSessionControl));
     assert(pSessionControl);
 
     CHECK_HR(hr = pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSessionControl2));
@@ -1284,12 +1284,14 @@ HRESULT AudioMonitor::RefreshSessions()
     IAudioSessionEnumerator* pSessionList = NULL;
     IAudioSessionControl* pSessionControl = NULL;
 
-    // Delete saved sessions before overwriting
+    // Delete saved sessions before calling session enumerator, it will release all our saved references.
     DeleteSessions();
 
     // Get the current list of sessions.
     // IMPORTANT NOTE: DONT retain references to IAudioSessionControl before calling this function,
-    //  it causes memory leaks
+    //      it causes memory leaks.
+    // IMPORTANT NOTE2: We have to use this call if we want receive new session notifications
+    // http://msdn.microsoft.com/en-us/library/dd368281%28v=vs.85%29.aspx point 5. (verified)
     CHECK_HR(hr = m_pSessionManager2->GetSessionEnumerator(&pSessionList));
 
     // Get the session count.
@@ -1297,9 +1299,10 @@ HRESULT AudioMonitor::RefreshSessions()
 
     dprintf("\n\n------ Refreshing sessions...\n\n");
 
-    static const bool unref_there = false;
+    const bool unref_there = false;
     for (int index = 0; index < cbSessionCount; index++)
     {
+
         // Get the <n>th session.
         CHECK_HR(hr = pSessionList->GetSession(index, &pSessionControl));
 
@@ -1669,6 +1672,8 @@ long AudioMonitor::Stop()
     Enables ISessionManager2 Events for new sessions
 
     Registers the class for callbacks to receive notifications on new sessions.
+    NOTE: For this to work we need to release all our session references and "refresh" get current SndVol sessions
+        see AudioMonitor::RefreshSession & AudioMonitor::Start
 
     TODO: do error codes.
 */
@@ -1694,6 +1699,8 @@ long AudioMonitor::InitEvents()
             m_pSessionEvents = new CSessionNotifications(this->shared_from_this()); // AddRef() on constructor
             CHECK_HR(ret = m_pSessionManager2->RegisterSessionNotification(m_pSessionEvents));
             assert(m_pSessionEvents);
+
+            dprintf("AudioMonitor::InitEvents() Init Sessions notification events completed.\n");
 
         done:;
         }
@@ -1727,7 +1734,14 @@ long AudioMonitor::StopEvents()
 
         // Stop new session notifications
         if ((m_pSessionManager2 != NULL) && (m_pSessionEvents != NULL))
+        {
             CHECK_HR(ret = m_pSessionManager2->UnregisterSessionNotification(m_pSessionEvents));
+            dprintf("AudioMonitor::InitEvents() Stopped Sessions notification events.\n");
+        }
+        else
+        {
+            dprintf("AudioMonitor::InitEvents() Sessions notification events already stopped or no instanced.\n");
+        }
 
         if (m_pSessionEvents != NULL)
             assert(CHECK_REFS(m_pSessionEvents) == 1);
@@ -1821,8 +1835,11 @@ long AudioMonitor::Start()
         if (m_current_status == AudioMonitor::monitor_status_t::STOPPED)
         {
             dwprintf(L"\n\t .... AudioMonitor::Start() STARTED ----\n\n");
-            // Delete and re add new sessions
-            ret = RefreshSessions();
+
+            // IMPORTANT:
+            // see http://msdn.microsoft.com/en-us/library/dd368281%28v=vs.85%29.aspx remarks point 5(five)
+            // we must use the enumerator first or we wont receive new session notifications.
+            ret = RefreshSessions(); // Deletes and re adds current sessions
 
 #ifdef VO_ENABLE_EVENTS
             /* Now we enable new incoming sessions. */
@@ -1855,7 +1872,7 @@ long AudioMonitor::Start()
 }
 
 /*
-    Simple thread safe proxy, see AudioMonitor::Refresh for more info.
+    Simple thread safe proxy, see AudioMonitor::RefreshSessions for more info.
 */
 long AudioMonitor::Refresh()
 {

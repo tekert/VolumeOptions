@@ -112,11 +112,8 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
     //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_vo_settings.monitor_settings));
 
-#ifdef VO_ENABLE_EVENTS
-    m_paudio_monitor->InitEvents(); // TODO: dont needed anymore after creation. analize. originaly was because we needed a shared_ptr first, and after io_service init.
-#endif
 #ifdef _DEBUG
-    m_paudio_monitor->Refresh(); // To debug current sessions enum quickly. not used much now.
+    //m_paudio_monitor->Refresh(); // To debug current sessions enum quickly. not used much now. delete it later
 #endif
 
 }
