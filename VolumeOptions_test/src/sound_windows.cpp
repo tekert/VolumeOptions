@@ -182,13 +182,14 @@ namespace
         l.unlock();
         return r;
     }
-
-    template <typename dt, typename ft, typename... pt>
-        std::unique_ptr<boost::asio::steady_timer>
-        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io, dt&& tdelay, ft&& f, pt&&... args)
+    
+    template <class rep, class period, typename ft, typename... pt>
+    std::unique_ptr<boost::asio::steady_timer>
+        ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
+            const std::chrono::duration<rep, period>& tdelay, ft&& f, pt&&... args)
     {
         std::unique_ptr<boost::asio::steady_timer> delay_timer =
-            std::make_unique<boost::asio::steady_timer>(*io, std::forward<dt>(tdelay));
+            std::make_unique<boost::asio::steady_timer>(*io, tdelay);
         delay_timer->async_wait(std::bind(std::forward<ft>(f), std::forward<pt>(args)...));
         return std::move(delay_timer);
     }
@@ -1080,7 +1081,7 @@ void AudioSession::set_time_active_since()
 
 
 AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id)
-    : m_current_status(STOPPED)
+    : m_current_status(INITERROR)
     , m_wsDeviceID(device_id)
     , m_auto_change_volume_flag(false)
     , m_settings(settings)
@@ -1108,23 +1109,26 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
     catch (std::exception& e)
     { 
         std::cerr << e.what();
-        m_current_status = AudioMonitor::INITERROR;
         return; 
     } // TODO error codes, log.
     dprintf("AudioMonitor Got Device OK.\n");
 
     m_processid = GetCurrentProcessId();
 
-    SetSettings(m_settings);
-
     // Start thread after pre init is complete.
     // m_current_status flag will be set to ok when thread init is complete.
-    m_current_status = AudioMonitor::INITERROR; 
     m_io.reset(new boost::asio::io_service);
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
-    // queue a sync call, when it returns, thread init is complete and io_service is running.
-    monitor_status_t status = SYNC_CALL_RET<monitor_status_t>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetStatus, this);
+    // When io_service is running, m_current_status flag will be set and finish init.
+    ASYNC_CALL(m_io, &AudioMonitor::FinishIOInit, this);
+}
+
+void AudioMonitor::FinishIOInit()
+{
+    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
+
+    SetSettings(m_settings);
 
     dprintf("\t--AudioMonitor init complete--\n");
 }
@@ -1163,7 +1167,7 @@ AudioMonitor::~AudioMonitor()
 
     In case we need to queue calls from other places.
     Warning: When class is destroyed, user will have to reset this pointer, is no longer useful.
-    But it garantees it wont be destroyed when it has work to do.
+    But it garantees it wont be destroyed when using it.
 */
 std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io() const
 {
@@ -1198,9 +1202,7 @@ void AudioMonitor::poll()
         this, std::placeholders::_1, expired_session_removal_timer));
 #endif
 
-    m_current_status = AudioMonitor::monitor_status_t::STOPPED;
-
-    // Call Dispatcher
+    // Syncronizes all method calls with AudioMonitor only thread.
     bool stop_loop = false;
     while (!stop_loop)
     {

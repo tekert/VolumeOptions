@@ -215,6 +215,7 @@ public:
 private:
 
     AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
+    void FinishIOInit();
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;

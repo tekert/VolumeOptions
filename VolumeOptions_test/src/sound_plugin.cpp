@@ -75,23 +75,26 @@ inline std::string wstring_to_utf8(const std::wstring& str)
 
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
+/*
+    Will load supplied settings directly
+*/
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
 
-    VolumeOptions();
+    common_init();
 }
 
 /*
-    Uses sconfigPath to search for "volumeoptions_plugin.ini" and load its settings
+    Uses sconfigPath directory to search for "volumeoptions_plugin.ini" and load its settings
         it will create and/or update the file if some options are missing.
 */
 VolumeOptions::VolumeOptions(const std::string &sconfigPath)
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
 {
-
+    // TODO remove last "\" on windows or / on linux, normalize paths, use boost
     std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
     std::fstream in(configFile, std::fstream::in);
     if (!in)
@@ -118,20 +121,21 @@ VolumeOptions::VolumeOptions(const std::string &sconfigPath)
     }
     in.close();
 
-    VolumeOptions();
+    common_init();
 }
 
 /* 
-    Basic, if config not set will load default settings always. 
+    Basic constructor, will load default settings always. 
 */
 VolumeOptions::VolumeOptions()
 {
+    common_init();
+}
+
+void VolumeOptions::common_init()
+{
     // Create the audio monitor and send settings to parse, it will return parsed settings.
     m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
-
-#ifdef _DEBUG
-    //m_paudio_monitor->Refresh(); // TODO: To debug current sessions enum quickly. not used much now. delete it later
-#endif
 }
 
 VolumeOptions::~VolumeOptions()
@@ -676,7 +680,8 @@ int VolumeOptions::apply_status()
     int r = 1;
 
     // if last client non disabled stoped talking, restore sounds. 
-    if ( m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty() )
+    if ( m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty() ) 
+        //TODO: || AudioMonitor::InterProcessStatus(m_paudio_monitor->GetdeviceID())
     {
         if (m_status == status::ENABLED)
         {

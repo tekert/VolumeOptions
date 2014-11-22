@@ -41,8 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef _WIN32
 #include "sounds_windows.h"
-#include "vo_settings.h"
 #endif
+#include "vo_settings.h"
 
 
 
@@ -98,6 +98,8 @@ public:
         const channelID_t& nonunique_channelID) const;
 
 private:
+
+    void common_init();
 
     void create_config_file(std::fstream& in);
     int parse_config(std::fstream& in, const std::string& configFile = ".");

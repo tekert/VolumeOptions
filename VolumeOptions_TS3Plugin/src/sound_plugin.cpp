@@ -53,8 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
-/*  Utilities	*/
 
+
+/*  Utilities	*/
 
 // convert UTF-8 string to wstring
 inline std::wstring utf8_to_wstring(const std::string& str)
@@ -74,22 +75,34 @@ inline std::string wstring_to_utf8(const std::wstring& str)
 
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
+/*
+    Will load supplied settings directly
+*/
+VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
+{
+    m_vo_settings = settings;
+    // nothing to parse from here, audiomonitor settings will be parsed when set.
 
-VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const std::string &sconfigPath)
+    common_init();
+}
+
+/*
+    Uses sconfigPath directory to search for "volumeoptions_plugin.ini" and load its settings
+        it will create and/or update the file if some options are missing.
+*/
+VolumeOptions::VolumeOptions(const std::string &sconfigPath)
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
 {
-    // Parse your settings, monitor_settings are parsed when aplying to monitor.
-    m_vo_settings = settings;
-
-    // Create config file
+    // TODO remove last "\" on windows or / on linux, normalize paths, use boost
     std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
     std::fstream in(configFile, std::fstream::in);
     if (!in)
     {
+        // Create config file if it doesnt exists
         in.open(configFile, std::fstream::out | std::ios::trunc);
         if (!in)
-            printf("VO_PLUGIN: Error creating config file %s\n", configFile.c_str());
+            printf("VO_PLUGIN: Error creating config file %s\n", configFile.c_str()); // TODO: report it to log
         else
         {
             create_config_file(in);
@@ -97,34 +110,38 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings, const 
     }
     else
     {
+        // Load config
+        // (monitor_settings are parsed when aplying to monitor).
         int ok = parse_config(in, configFile); // 0 on error.
         if (!ok)
         {
             printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
-            // TODO use TS3 client log.
+            // TODO use TS3 client log, we will use default settings.
         }
     }
     in.close();
 
-    // Create the audio monitor
-    //m_paudio_monitor = std::make_shared<AudioMonitor>(m_vo_settings.monitor_settings);
+    common_init();
+}
+
+/* 
+    Basic constructor, will load default settings always. 
+*/
+VolumeOptions::VolumeOptions()
+{
+    common_init();
+}
+
+void VolumeOptions::common_init()
+{
+    // Create the audio monitor and send settings to parse, it will return parsed settings.
     m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
-    //m_paudio_monitor = std::shared_ptr<AudioMonitor>(new AudioMonitor(m_vo_settings.monitor_settings));
-
-#ifdef VO_ENABLE_EVENTS
-    m_paudio_monitor->InitEvents(); // TODO: dont needed anymore after creation. analize. originaly was because we needed a shared_ptr first, and after io_service init.
-#endif
-#ifdef _DEBUG
-    m_paudio_monitor->Refresh(); // To debug current sessions enum quickly. not used much now.
-#endif
-
 }
 
 VolumeOptions::~VolumeOptions()
 {
-    VolumeOptions::restore_default_volume();
-
-    m_paudio_monitor.reset();
+    // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
+    m_paudio_monitor.reset(); // just a example: remember to delete all shared_ptr references.
 }
 
 
@@ -136,6 +153,7 @@ void VolumeOptions::create_config_file(std::fstream& in)
         return;
 
     // INI parser cant read values with comments on the same line
+    // TODO delete this now.. ini is auto regenerated without comments..
     in <<
         "[global]\n"
         "enabled = 1\n"
@@ -355,6 +373,9 @@ void VolumeOptions::set_settings(vo::volume_options_settings& settings)
     m_paudio_monitor->SetSettings(settings.monitor_settings);
 }
 
+/*
+    Shortcut to get current global audio session volume change.
+*/
 float VolumeOptions::get_global_volume_reduction() const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -363,22 +384,37 @@ float VolumeOptions::get_global_volume_reduction() const
     return m_paudio_monitor->GetVolumeReductionLevel();
 }
 
+/*
+    Restores audio sessions valume back to user default using AudioMonitor lib.
+*/
 void VolumeOptions::restore_default_volume()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Restoring per app user default volume\n");
+    printf("VO_PLUGIN: Forcing restore per app user default volume.\n");
 
     m_paudio_monitor->Stop();
 }
 
-void VolumeOptions::reset_data() // TODO: uhm
+/* 
+    Resets all data back to default 
+    WARNING: if used while clients are talking we will get incorrent talking counts
+        until everybody stops talking.
+*/
+void VolumeOptions::reset_data() // Not used
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    printf("VO_PLUGIN: Reseting talk data\n");
-    while (!m_clients_talking.empty())
+    printf("VO_PLUGIN: Reseting talk data.\n");
+
+    reset_all_clients_settings();
+    reset_all_channels_settings();
+
+    if (!m_clients_talking.empty())
         m_clients_talking.clear();
+
+    if (!m_channels_with_activity.empty())
+        m_channels_with_activity.clear();
 
     VolumeOptions::restore_default_volume();
 }
@@ -413,17 +449,19 @@ VolumeOptions::status VolumeOptions::get_status() const
 
     return m_status;
 }
+
 VolumeOptions::status VolumeOptions::get_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t nonunique_channelID) const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    uniqueChannelID_t channelID(get_unique_channelid(uniqueServerID, nonunique_channelID));
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, nonunique_channelID));
 
-    if (m_ignored_channels.count(channelID))
+    if (m_ignored_channels.count(uniqueChannelID))
         return DISABLED;
 
     return ENABLED;
 }
+
 VolumeOptions::status VolumeOptions::get_client_status(const uniqueClientID_t clientID) const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -434,6 +472,9 @@ VolumeOptions::status VolumeOptions::get_client_status(const uniqueClientID_t cl
     return ENABLED;
 }
 
+/*
+    Erases all saved data on ignored channels
+*/
 void VolumeOptions::reset_all_channels_settings()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -466,6 +507,9 @@ void VolumeOptions::reset_all_channels_settings()
     apply_status();
 }
 
+/*
+    Erases all saved data on ignored clients
+*/
 void VolumeOptions::reset_all_clients_settings()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -498,6 +542,10 @@ void VolumeOptions::reset_all_clients_settings()
 
 }
 
+/*
+    TS3 doesnt provide a unique channel id because it always belongs to a server, here we make a unique id
+        from these two elements, unique virtual server id plus local channel id.
+*/
 inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(const uniqueServerID_t& uniqueServerID,
     const channelID_t& nonunique_channelID) const
 {
@@ -507,6 +555,8 @@ inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(cons
 
 /*
     Marks channels as disabled for auto volume change when volume options is running
+
+    We need the unique server ID from where this channel is.
 */
 void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, const channelID_t channelID,
     const status s)
@@ -522,7 +572,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         // if already ignored return
         if (m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %s Status: Already Disabled\n", uniqueChannelID.c_str());
+            printf("VO_PLUGIN: Channel %s Status: Already Disabled\n", uniqueChannelID.c_str());
             return;
         }
 
@@ -542,7 +592,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         // if already enabled return
         if (!m_ignored_channels.count(uniqueChannelID))
         {
-            dprintf("VO_PLUGIN: Channel %s Status: Already Enabled\n", uniqueChannelID.c_str());
+            printf("VO_PLUGIN: Channel %s Status: Already Enabled\n", uniqueChannelID.c_str());
             return;
         }
 
@@ -558,7 +608,7 @@ void VolumeOptions::set_channel_status(const uniqueServerID_t uniqueServerID, co
         }
     }
 
-    dprintf("VO_PLUGIN: Channel %s Status: %s\n", uniqueChannelID.c_str(),
+    printf("VO_PLUGIN: Channel %s Status: %s\n", uniqueChannelID.c_str(),
         s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
@@ -579,7 +629,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         // if already ignored return
         if (m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %s Status: Already Disabled\n", uniqueClientID.c_str());
+            printf("VO_PLUGIN: Client %s Status: Already Disabled\n", uniqueClientID.c_str());
             return;
         }
 
@@ -598,7 +648,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         // if already enabled return
         if (!m_ignored_clients.count(uniqueClientID))
         {
-            dprintf("VO_PLUGIN: Client %s Status: Already Enabled\n", uniqueClientID.c_str());
+            printf("VO_PLUGIN: Client %s Status: Already Enabled\n", uniqueClientID.c_str());
             return;
         }
 
@@ -613,7 +663,7 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
         }
     }
 
-    dprintf("VO_PLUGIN: Client %s Status: %s\n", uniqueClientID.c_str(),
+    printf("VO_PLUGIN: Client %s Status: %s\n", uniqueClientID.c_str(),
         s == status::DISABLED ? "Disabled" : "Enabled");
 
     // Update statuses
@@ -636,7 +686,7 @@ int VolumeOptions::apply_status()
         {
             if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
             {
-                printf("VO_PLUGIN: Audio Monitor Stopped, restoring Sessions to default state...\n");
+                printf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
                 r = m_paudio_monitor->Pause();
                 //m_paudio_monitor->Stop();
             }
@@ -652,7 +702,7 @@ int VolumeOptions::apply_status()
             {
                 if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
                 {
-                    printf("VO_PLUGIN: Audio Monitor Active. starting/resuming...\n");
+                    printf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
                     r = m_paudio_monitor->Start();
                 }
             }
@@ -691,7 +741,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
-    // TODO if user ignores himself well get incorrect count, fix it.
+    // TODO if user ignores himself well get incorrect count, fix it. revise this.
     if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(uniqueClientID))
     {
         dprintf("VO_PLUGIN: We are talking.. do nothing\n");

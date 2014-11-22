@@ -484,7 +484,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 		case PLUGIN_SERVER:
 			if(ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_NAME, &name) != ERROR_ok) {
 				printf("Error getting virtual server name\n");
-				return;
+                goto done;
 			}
 
             // TODO: global is not the same as server.. change this.
@@ -496,13 +496,13 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 
 		case PLUGIN_CHANNEL:
 			if(ts3Functions.getChannelVariableAsString(serverConnectionHandlerID, id, CHANNEL_NAME, &name) != ERROR_ok) {
-				printf("Error getting channel name\n");
-				return;
+				printf("Error getting channel name\n"); /* NOTE: Can happen on shutdown */
+                goto done;
 			}
             if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
             {
                 ts3Functions.logMessage("Error querying server unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
-                return;
+                goto done;
             }
 
             s = g_voptions->get_channel_status(unique_serverid, id);
@@ -525,12 +525,12 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 		case PLUGIN_CLIENT:
 			if(ts3Functions.getClientVariableAsString(serverConnectionHandlerID, (anyID)id, CLIENT_NICKNAME, &name) != ERROR_ok) {
 				printf("Error getting client nickname\n");
-				return;
+                goto done;
 			}
             if (ts3Functions.getClientVariableAsString(serverConnectionHandlerID, (anyID)id, CLIENT_UNIQUE_IDENTIFIER, &uid) != ERROR_ok)
             {
                 ts3Functions.logMessage("Error querying client unique ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
-                return;
+                goto done;
             }
 
             s = g_voptions->get_client_status(uid);
@@ -560,6 +560,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
     snprintf(*data, INFODATA_BUFSIZE, "%s  [color=#B6B6CC]|[/color]  [I]%d%%[/I]",
         vo_status, int(g_voptions->get_global_volume_reduction() * 100));  /* bbCode is supported. HTML is not supported */
     
+done:
     if (uid)
         ts3Functions.freeMemory(uid);
     if (unique_serverid) 
