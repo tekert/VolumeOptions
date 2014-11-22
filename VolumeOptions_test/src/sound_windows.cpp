@@ -1082,7 +1082,7 @@ void AudioSession::set_time_active_since()
 
 AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id)
     : m_current_status(INITERROR)
-    , m_wsDeviceID(device_id)
+    , m_error_status(OK)
     , m_auto_change_volume_flag(false)
     , m_settings(settings)
     , m_pSessionEvents(NULL)
@@ -1099,22 +1099,20 @@ AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstr
     //if (IsEqualGUID(GUID_VO_CONTEXT_EVENT_ZERO, GUID_VO_CONTEXT_EVENT))
     //CHECK_HR(hr = CoCreateGuid(&GUID_VO_CONTEXT_EVENT));
 
-    dprintf("AudioMonitor GetSessionManager()...\n");
-    try 
-    { 
-        hr = GetSessionManager(); 
-        if (FAILED(hr))
-            throw std::exception("HRESULT ERROR ", hr); // TODO boost::error_codes
-    }
-    catch (std::exception& e)
-    { 
-        std::cerr << e.what();
-        return; 
-    } // TODO error codes, log.
-    dprintf("AudioMonitor Got Device OK.\n");
+    hr = InitDeviceID(device_id); // if empty will use default endpoint.
+    if (FAILED(hr))
+        return;
 
     m_processid = GetCurrentProcessId();
 
+    if (m_error_status != DEVICEID_IN_USE)
+    {
+        StartIOInit();
+    }
+}
+
+void AudioMonitor::StartIOInit()
+{
     // Start thread after pre init is complete.
     // m_current_status flag will be set to ok when thread init is complete.
     m_io.reset(new boost::asio::io_service);
@@ -1135,7 +1133,7 @@ void AudioMonitor::FinishIOInit()
 
 AudioMonitor::~AudioMonitor()
 {
-    if (m_current_status != AudioMonitor::INITERROR)
+    if (m_io.use_count())
     {
         // Exit MonitorThread
         m_abort = true;
@@ -1143,9 +1141,11 @@ AudioMonitor::~AudioMonitor()
         // NOTE: define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
         //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
         //  it has no pending handlers to run (empty queue only).
+
         if (m_thread_monitor.joinable())
             m_thread_monitor.join(); // wait to finish
-
+    }
+    {
         std::lock_guard<std::mutex> l(m_static_set_access);
         m_current_moniting_deviceids.erase(m_wsDeviceID);
     }
@@ -1184,7 +1184,7 @@ std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io() const
 */
 void AudioMonitor::poll()
 {
-    // No other thread can use this class while pooling
+    // No other friendly class thread can use this class while pooling
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // IMPORTANT: call CoInitializeEx in this thread. not in constructors thread
@@ -1360,10 +1360,49 @@ done:
     return hr;
 }
 
+HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
+{
+    HRESULT hr = S_OK;
+
+    std::wstring device_id(_device_id);
+    hr = GetSessionManager(device_id); // if empty, will be set with default endpoint if no errors occurs.
+    if (FAILED(hr))
+    {
+        if (hr == E_NOTFOUND)
+        {
+            std::cerr << "ERROR InitDeviceID() The device ID does not identify an audio device"
+                "that is in this system. " << std::endl; // TODO: do boost::error codes and stop copying.
+            m_error_status = DEVICE_NOT_FOUND;
+        }
+        std::wcerr << "ERROR InitDeviceID(" << _device_id << ")  HRESULT : " << hr << std::endl;
+    }
+    else
+    {
+        std::lock_guard<std::mutex> l(m_static_set_access);
+        // if we are already monitoring this endpoint, abort
+        if (m_current_moniting_deviceids.count(device_id))
+        {
+            // todo heavy: check if other process or instance is using it and continue, dont return, then sync.
+            std::cerr << "AudioMonitor::InitDeviceID() ERROR: Already monitoring this DeviceID endpoint" << std::endl;
+            m_error_status = DEVICEID_IN_USE;
+        }
+        else
+        {
+            // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
+            m_current_moniting_deviceids.insert(device_id);
+
+            m_wsDeviceID = device_id;
+            dprintf("AudioMonitor::InitDeviceID()  Using Device Status: OK.\n");
+        }
+    }
+
+    return hr;
+}
+
 /*
     Creates the IAudioSessionManager instance on default output device
 */
-HRESULT AudioMonitor::GetSessionManager()
+HRESULT AudioMonitor::GetSessionManager(std::wstring& device_id)
 {
     HRESULT hr = S_OK;
 
@@ -1371,8 +1410,6 @@ HRESULT AudioMonitor::GetSessionManager()
     IMMDeviceEnumerator* pEnumerator = NULL;
     LPWSTR pwszID = NULL;
     bool uninitialize_com = true;
-
-    std::lock_guard<std::mutex> l(m_static_set_access);
 
     // Call this from the threads doing work on WAPI interfaces. (in this case AudioMonitor thread)
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
@@ -1385,7 +1422,8 @@ HRESULT AudioMonitor::GetSessionManager()
     if ((hr == RPC_E_CHANGED_MODE) || (hr == S_FALSE))
         uninitialize_com = false;
 
-    dprintf("AudioMonitor CreateSessionManager() Getting Manager2 instance from device...\n");
+    dwprintf(L"AudioMonitor CreateSessionManager() Getting Manager2 instance from DeviceID: %s...\n",
+        device_id.c_str());
 
     // Create the device enumerator.
     CHECK_HR(hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
@@ -1393,28 +1431,22 @@ HRESULT AudioMonitor::GetSessionManager()
     assert(pEnumerator != NULL);
 
     // If user specified and endpoint ID to monitor, use it, if not use default.
-    if (m_wsDeviceID.empty())
+    if (device_id.empty())
     {
         // Get the default audio device.
         CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
         assert(pDevice != NULL);
 
         CHECK_HR(hr = pDevice->GetId(&pwszID));
-        m_wsDeviceID = pwszID;
+        device_id = pwszID;
         CoTaskMemFree(pwszID);
         pwszID = NULL;
     }
     else
     {
         // Get user specified device using its device id.
-        CHECK_HR(hr = pEnumerator->GetDevice(m_wsDeviceID.c_str(), &pDevice));
+        CHECK_HR(hr = pEnumerator->GetDevice(device_id.c_str(), &pDevice));
     }
-
-    // if we are already monitoring this endpoint, abort
-    if (m_current_moniting_deviceids.count(m_wsDeviceID))
-        throw std::exception("Already monitoring this endpoint");
-    // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
-    m_current_moniting_deviceids.insert(m_wsDeviceID);
 
     // Get the session manager. (this will fail on vista and below)
     CHECK_HR(hr = pDevice->Activate(
@@ -2194,6 +2226,8 @@ auto AudioMonitor::GetStatus() -> monitor_status_t
 
     return ret;
 }
+
+
 
 #if 0 //TEST DELETE
 // Shortcut to sync/async calls

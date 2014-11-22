@@ -207,7 +207,9 @@ public:
     long InitEvents();
     long StopEvents();
 #endif
+    void ChangeDeviceID(const std::wstring& device_id);
     enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
+    enum monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR };
     monitor_status_t GetStatus();
     // Get
     std::shared_ptr<boost::asio::io_service> get_io() const;
@@ -215,6 +217,7 @@ public:
 private:
 
     AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
+    void StartIOInit();
     void FinishIOInit();
 
     // Main sessions container type
@@ -222,7 +225,7 @@ private:
 
     void poll(); /* AudioMonitor main thread loop */
 
-    HRESULT GetSessionManager();
+    HRESULT GetSessionManager(std::wstring& device_id);
     HRESULT RefreshSessions();
     void DeleteSessions();
 
@@ -232,6 +235,9 @@ private:
         std::shared_ptr<boost::asio::steady_timer> timer);
     void ApplySettings();
     bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
+
+    void RemoveDeviceID(const std::wstring& device_id);
+    HRESULT InitDeviceID(const std::wstring& device_id);
 
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
@@ -250,6 +256,7 @@ private:
 
     bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
     monitor_status_t m_current_status;
+    monitor_error_t m_error_status;
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
