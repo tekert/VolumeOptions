@@ -92,6 +92,8 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>BOOST_LIB_DIAGNOSTIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -137,18 +139,21 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
+    <ClCompile Include="src\sound_windows_ipc.cpp" />
     <ClCompile Include="src\test_sound.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\async_queue.h" />
+    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue.hpp" />
     <ClInclude Include="volumeoptions\debug.h" />
     <ClInclude Include="volumeoptions\logger.hpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="volumeoptions\sounds_windows.h" />
+    <ClInclude Include="volumeoptions\sound_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
     <ClInclude Include="volumeoptions\sound_plugin_gui.h" />
+    <ClInclude Include="volumeoptions\sound_windows_ipc.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
     <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />

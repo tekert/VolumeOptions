@@ -13,6 +13,15 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\boost_1_57">
+      <UniqueIdentifier>{dcb85650-07fd-4855-8432-08bd4f7d57b1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\boost_1_57\interprocess">
+      <UniqueIdentifier>{d3b84427-a1e4-47a3-9d8f-e503954c0bf2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\boost_1_57\interprocess\ipc">
+      <UniqueIdentifier>{98d7dac0-c598-4bda-bfcb-df30f74dc4ff}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\sound_plugin.cpp">
@@ -36,12 +45,12 @@
     <ClCompile Include="src\debug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\sound_windows_ipc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\sound_plugin.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="volumeoptions\sounds_windows.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\vo_settings.h">
@@ -63,6 +72,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\sound_plugin_gui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue.hpp">
+      <Filter>Header Files\boost_1_57\interprocess\ipc</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\sound_windows_ipc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\sound_windows.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

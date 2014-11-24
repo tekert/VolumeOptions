@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "stdint.h"
 
 #ifdef _WIN32
-#include "sounds_windows.h"
+#include "sound_windows.h"
 #endif
 #include "vo_settings.h"
 
@@ -128,9 +128,23 @@ private:
     mutable std::recursive_mutex m_mutex;
 };
 
+/*  Utilities	*/
+#include <codecvt>
 // C++11 Standard conversions
-inline std::wstring utf8_to_wstring(const std::string& str);
-inline std::string wstring_to_utf8(const std::wstring& str);
+
+// convert UTF-8 string to wstring
+inline std::wstring utf8_to_wstring(const std::string& str)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.from_bytes(str);
+}
+
+// convert wstring to UTF-8 string
+inline std::string wstring_to_utf8(const std::wstring& str)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.to_bytes(str);
+}
 
 
 

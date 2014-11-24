@@ -33,6 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <boost/config.hpp>
 
+// Unique ID of this software, randomly generated
+#define VO_GUID_STRING "{D2C1BB1F-47D8-48BF-AC69-7E4E7B2DB6BF}"
+
+
+
 
 //TODO: do we really need this macro? was originaly for vista support but...
 #define VO_ENABLE_EVENTS

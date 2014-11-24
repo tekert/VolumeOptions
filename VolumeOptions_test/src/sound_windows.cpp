@@ -63,7 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 
 #include "../volumeoptions/vo_config.h"
-#include "../volumeoptions/sounds_windows.h"
+#include "../volumeoptions/sound_windows.h"
 
 #include <initguid.h> // for macro DEFINE_GUID definition http://support2.microsoft.com/kb/130869/en-us
 /* zero init global GUID for events, for later on AudioMonitor constructor */

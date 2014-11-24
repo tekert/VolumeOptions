@@ -33,15 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdlib.h>
 #include <string.h>
 #include <cassert>
-#ifdef _WIN32
-// comparing ptrees causes many warnings if we dont do this.
-#pragma warning(push)
-#pragma warning(disable: 4996)
-#endif
-#include <codecvt>
-#ifdef _WIN32
-#pragma warning(pop)
-#endif
 #include <fstream>
 
 // for ini parser
@@ -53,23 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_plugin.h"
-
-
-/*  Utilities	*/
-
-// convert UTF-8 string to wstring
-inline std::wstring utf8_to_wstring(const std::string& str)
-{
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
-    return myconv.from_bytes(str);
-}
-
-// convert wstring to UTF-8 string
-inline std::string wstring_to_utf8(const std::wstring& str)
-{
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
-    return myconv.to_bytes(str);
-}
 
 
 
