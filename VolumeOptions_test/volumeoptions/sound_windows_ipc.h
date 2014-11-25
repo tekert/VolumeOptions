@@ -35,11 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
-#include <boost/interprocess/sync/interprocess_mutex.hpp>
+#include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
 #include <boost/interprocess/sync/interprocess_condition.hpp>
 
 #include <set>
 #include <string>
+#include <memory>
 
 namespace ipc
 {
@@ -48,9 +49,9 @@ namespace ipc
     Ok, this is tricky, we need to protect access to a shared object.
         boost managed mem is already protected for creating objects, finding objects references... you get the idea.
 
-    The thing is.. if we use mutex to protect an object internals in a single shared memory, and the process terminates...
-        we will get undefined state in our object, if we lock the mutex on destruction to erase data,
-        we are calling for trouble too, object destruction is called on process abort depending.
+    The thing is.. if we use mutex to protect an object internals in a single shared memory, and the process
+        terminates while holding a mutex we will get undefined state in our object, if we lock the mutex on destruction
+        to erase data, we are calling for trouble too, object destruction is also called on process abort depending.
 
     Solution:
     WINDOWS_ONLY: i dont want to use robust mutex or etc, a simple solution that works on windows is taking
@@ -59,62 +60,118 @@ namespace ipc
     We have to write our object there, not only a mutex because the object could be left in undefined state.
         And now we finally have this implementation: 
 
-        Creates his own shared Set in his own shared memory, and every time is
-        going to insert something, it searchs for other shared_mem currently open(not process terminated) and checks
-        if it can find something before inserting.
+        Creates his own shared SoundDevicesSet in his own shared memory, and every time is
+        going to insert something, it searchs for others shared mems currently open(not process terminated) and checks
+        if it can find something before inserting, ugly but effective in less code.
 
         Every process has:
-            *const named string object with his PID.
-            *set with his current monitored device IDs.
+            In his 'own' shared segment:
+            * const named string object with his PID. (TODO)
+            * set with his current monitored device IDs.
 
-            Every one of the message queues uses my modidification of boost message queues for windows managed mem.
-            *message queue for receiving messages.
-            ***multiple message queues to broadcast or send messages.
+            (every one of the message queues uses a modification of boost message queues for windows managed mem)
+            In multiple shared segments (transparent):
+            * message queue for receiving messages. (WORKING)
+            *** multiple message queues to broadcast or send messages. (WORKING)
+
+    Until i can find a way to garantee object state: 
+        maybe with object cheking/reconstruction and timed mutex
+        or cheking if PID is up on short timer etc
+        or a better way to do it i will use this.
+
 */
 
 
+    class MemoryManager;
 
 
-    class SoundDevicesSet // TODO change name to WinIPC_DevicesSet, or namespace vo::win::ipc::deviceset
+
+    class SoundDevicesSet // TODO: change name to SharedStringSet and template it wstring or string
     {
     public:
-        SoundDevicesSet();
+        SoundDevicesSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
+            const std::string& _managed_memory_name);
         ~SoundDevicesSet();
 
+        bool insert(const std::wstring& deviceid);
+        bool exists(const std::wstring& deviceid);
+        bool erase(const std::wstring& deviceid);
 
-        void insert_device(const std::wstring& deviceid);
-        bool is_device_set(const std::wstring& deviceid);
-        bool remove_device(const std::wstring& deviceid);
-
-    private:
+        std::string get_set_name();
 
         // Typedefs of allocators and containers
 
         // Use windows managed shared mem in this case                                      /////////////////////
         typedef boost::interprocess::managed_windows_shared_memory::segment_manager         segment_manager_t;
         typedef boost::interprocess::allocator<void, segment_manager_t>                     void_shm_allocator;
-        /////////////////////
+                                                                                            /////////////////////
         typedef boost::interprocess::allocator<char, segment_manager_t>                     char_shm_allocator;
         typedef boost::interprocess::basic_string < char,
-            std::char_traits<char>, char_shm_allocator > shm_string;
-        /////////////////////
+            std::char_traits<char>, char_shm_allocator >                                    shm_string;
+                                                                                            /////////////////////
         typedef boost::interprocess::allocator<wchar_t, segment_manager_t>                  wchar_t_shm_alocator;
         typedef boost::interprocess::basic_string < wchar_t, std::char_traits<wchar_t>,
-            wchar_t_shm_alocator > shm_wstring;
-        /////////////////////
+            wchar_t_shm_alocator >                                                          shm_wstring;
+                                                                                            /////////////////////
         typedef boost::interprocess::allocator<shm_wstring, segment_manager_t>              wstring_shm_allocator;
         typedef boost::interprocess::set < shm_wstring, std::less<shm_wstring>,
-            wstring_shm_allocator > shm_wstring_set;
-        /////////////////////
-        boost::interprocess::managed_windows_shared_memory m_managed_shm;
-        bool m_we_created_shared_mem;
+            wstring_shm_allocator >                                                         shm_wstring_set;
+                                                                                            /////////////////////
+    private:
+
+        void construct_objects_atomic(
+            std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm);
 
         // Set to store monitored deviceID wstrings globaly
         shm_wstring_set* m_msmpSetWstring = nullptr; // managed shared memory pointer to wstring set.
         std::set<std::wstring> m_local_device_count; // keeps track of local insertions to erase them from sharedmem on destruction.
 
-        boost::interprocess::interprocess_mutex* m_msmp_mutex = nullptr;
+        // To Sync object internals (can hang on process termination...)
+        boost::interprocess::interprocess_recursive_mutex* m_msmp_mutex = nullptr;
         boost::interprocess::interprocess_condition* m_msmp_cond = nullptr;
+
+        // where to find the object in managed memory (empty if not constructed)
+        std::string m_device_set_name;
+        std::string m_imutex_name;
+        std::string m_icond_name;
+
+        // References to our memory manager
+        std::weak_ptr<boost::interprocess::managed_windows_shared_memory> m_wp_managed_shm;
+        std::string m_managed_shm_name;
+
+        bool m_we_created_set;
+    };
+
+
+    class MemoryManager // TODO: change name to  SharedManager
+    {
+    public:
+        MemoryManager();
+        ~MemoryManager();
+
+        bool find_device(const std::wstring& deviceid);
+        bool remove_device(const std::wstring& deviceid);
+        bool set_device(const std::wstring& deviceid);
+
+        std::string get_manager_name();
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_manager();
+
+    private:
+
+        const std::string m_managed_shared_memory_base_name = "win_managed_mem-"VO_GUID_STRING;
+
+        bool create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size = 128 * 1024);
+        void open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size = 128 * 1024);
+
+        std::unique_ptr<SoundDevicesSet> m_msm_up_devices_set;
+
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_managed_shm;
+
+        std::string m_opened_managed_sm_name;
+
+        const unsigned short m_max_slots;
+
+        bool m_we_created_shared_mem;
     };
 
 
