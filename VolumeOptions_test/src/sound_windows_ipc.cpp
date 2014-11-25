@@ -136,12 +136,14 @@ bool MemoryManager::create_free_managed_smem(const std::string& base_name, boost
     {
         try
         {
+            test_name = base_name + "-" + std::to_string(free_slot);
             m_managed_shm.reset(
                 new managed_windows_shared_memory(create_only, test_name.c_str(), block_size));
             m_we_created_shared_mem = true;
             dprintf("IPC SharedMem: CREATED - %s\n", test_name.c_str());
 
             m_opened_managed_sm_name = test_name;
+            break;
         }
         catch (boost::interprocess::interprocess_exception& e)
         {
