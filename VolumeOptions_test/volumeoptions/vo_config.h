@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <boost/config.hpp>
 
-// Unique ID of this software, randomly generated
+// Unique ID of this software, randomly generated DONT TOUCH IT unless necessary
 #define VO_GUID_STRING "{D2C1BB1F-47D8-48BF-AC69-7E4E7B2DB6BF}"
 
 

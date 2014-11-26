@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mutex>
 #include <unordered_set>
 #include <string>
+#include <codecvt>
 
 #include "stdint.h"
 
@@ -44,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 #include "vo_settings.h"
 
-
+namespace vo {
 
 // Client Interface for Team Speak 3
 class VolumeOptions
@@ -52,7 +53,7 @@ class VolumeOptions
 public:
 
     VolumeOptions(const std::string &sconfigPath);
-    VolumeOptions(const vo::volume_options_settings& settings);
+    VolumeOptions(const volume_options_settings& settings);
     VolumeOptions();
     ~VolumeOptions();
 
@@ -129,7 +130,7 @@ private:
 };
 
 /*  Utilities	*/
-#include <codecvt>
+
 // C++11 Standard conversions
 
 // convert UTF-8 string to wstring
@@ -146,6 +147,6 @@ inline std::string wstring_to_utf8(const std::wstring& str)
     return myconv.to_bytes(str);
 }
 
-
+} // end namespace vo
 
 #endif

@@ -38,56 +38,56 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace vo {
 
-    struct session_settings
-    {
-        session_settings()
-            : change_only_active_sessions(true)
-            , treat_vol_as_percentage(true)
-            , vol_up_delay(400)
-            , vol_reduction(0.5f)
-        {}
+struct session_settings
+{
+    session_settings()
+        : change_only_active_sessions(true)
+        , treat_vol_as_percentage(true)
+        , vol_up_delay(400)
+        , vol_reduction(0.5f)
+    {}
 
-        // Session settings
-        bool change_only_active_sessions;
-        bool treat_vol_as_percentage;
-        float vol_reduction; // 0.0 to 1.0
-        std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
-    };
+    // Session settings
+    bool change_only_active_sessions;
+    bool treat_vol_as_percentage;
+    float vol_reduction; // 0.0 to 1.0
+    std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
+};
 
 
-    // Library configurable settings
-    struct monitor_settings
-    {
-        monitor_settings()
-            : exclude_own_process(true)
-            , use_included_filter(false)
-        {}
+// Library configurable settings
+struct monitor_settings
+{
+    monitor_settings()
+        : exclude_own_process(true)
+        , use_included_filter(false)
+    {}
 
-        std::set<unsigned long> excluded_pids;		// process id blacklist
-        std::set<std::wstring> excluded_process;	// process names blacklist
-        std::set<unsigned long>	included_pids;		// process id whitelist
-        std::set<std::wstring> included_process;	// process names whitelist
+    std::set<unsigned long> excluded_pids;		// process id blacklist
+    std::set<std::wstring> excluded_process;	// process names blacklist
+    std::set<unsigned long>	included_pids;		// process id whitelist
+    std::set<std::wstring> included_process;	// process names whitelist
 
-        bool use_included_filter; // cant use both, blacklist or whitelist
-        bool exclude_own_process;
+    bool use_included_filter; // cant use both, blacklist or whitelist
+    bool exclude_own_process;
 
-        std::map<std::wstring, session_settings> ses_individual_settings; // TODO
+    std::map<std::wstring, session_settings> ses_individual_settings; // TODO
 
-        session_settings ses_global_settings;
-    };
+    session_settings ses_global_settings;
+};
 
-    struct volume_options_settings
-    {
-        volume_options_settings()
-            : exclude_own_client(true)
-        {}
+struct volume_options_settings
+{
+    volume_options_settings()
+        : exclude_own_client(true)
+    {}
 
-        // TODO: remove monitor_settings and make vol_reduction shortcuts
-        vo::monitor_settings monitor_settings;
+    // TODO: remove monitor_settings and make vol_reduction shortcuts
+    vo::monitor_settings monitor_settings;
 
-        // add extra settings for your inteface.
-        bool exclude_own_client;
-    };
+    // add extra settings for your inteface.
+    bool exclude_own_client;
+};
 
-}
+} // end namespace vo
 #endif

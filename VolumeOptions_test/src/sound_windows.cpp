@@ -74,6 +74,8 @@ static const GUID GUID_VO_CONTEXT_EVENT =
 { 0xd2c1bb1f, 0x47d8, 0x48bf, { 0xac, 0x69, 0x7e, 0x4e, 0x7b, 0x2d, 0xb6, 0xbf } };
 
 
+namespace vo {
+
 std::set<std::wstring> AudioMonitor::m_current_moniting_deviceids;
 std::mutex AudioMonitor::m_static_set_access;
 
@@ -2247,5 +2249,8 @@ void AudioMonitor::SYNC_CALL(ft&& f, pt&&... args)
     SYNC_CALL(m_io, m_cond, m_io_mutex, std::forward<ft>(f), std::forward<pt>(args)...));
 }
 #endif
+
+
+} // end namespace vo
 
 #endif

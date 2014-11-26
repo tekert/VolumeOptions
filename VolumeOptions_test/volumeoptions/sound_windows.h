@@ -88,6 +88,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
 #define CHECK_REFS(...)
 #endif
 
+namespace vo {
 
 class AudioMonitor;
 /*
@@ -286,6 +287,7 @@ private:
     mutable std::recursive_mutex m_mutex;
 };
 
+} // end namespace vo
 
 #endif
 

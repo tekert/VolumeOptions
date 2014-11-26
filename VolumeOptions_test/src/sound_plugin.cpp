@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../volumeoptions/sound_plugin.h"
 
 
+namespace vo
+{
 
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
@@ -824,3 +826,5 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
 
     return r; // TODO error codes
 }
+
+} // end namespace vo

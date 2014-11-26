@@ -8,7 +8,9 @@
 // Change main2 to main to compile
 int main2(int argc, char* argv[])
 {
-    vo::volume_options_settings settings;
+    using namespace vo;
+
+    volume_options_settings settings;
     
     // fill settings, you can change them anytime
     settings.monitor_settings.ses_global_settings.vol_reduction = 0.4f;

@@ -30,17 +30,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../volumeoptions/vo_config.h"
 
-#include <boost/interprocess/sync/scoped_lock.hpp> // dont use them, abandoned mutexes are a headche. use native mutex.
-
 #include "../volumeoptions/sound_windows_ipc.h"
 
-using namespace ipc;
+// Define this prior to scoped_lock include, timed wait doesnt work on windows, we have to use this.
+#ifndef BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
+#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
+#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 2000
+#endif
+#include <boost/interprocess/sync/scoped_lock.hpp>
 
+
+namespace vo {
+namespace ipc {
+namespace win {
 
 /*
     See notes on header to understand all this.
 */
-MemoryManager::MemoryManager()
+SharedMemoryManager::SharedMemoryManager()
     : m_we_created_shared_mem(false)
     , m_max_slots(50)
 {
@@ -54,45 +61,47 @@ MemoryManager::MemoryManager()
     // Pages in windows are typicaly 4k bytes 'dwPageSize' (mapped_region::get_page_size() is wrong about "Page size", 
     //  it not the same as 'dwAllocationGranularity' "Page granularity" ).
     //  dwAllocationGranularity is "The granularity with which virtual memory is allocated". used by VirtualAlloc.
-    // either way, 64KiB is safe to have room, dwAllocationGranularity is typicaly 64KiB
+    // either way, 128KiB is safe to have room, dwAllocationGranularity is typically 64KiB
     offset_t block_size = 128 * 1024;
 
-    // Find a free slot number for our personal windows shared memory. (we will be the writers as explained in header)
+    // Find a free slot number for our personal windows shared memory. (we will be the writer as explained in header)
     try
     {
-        create_free_managed_smem(m_managed_shared_memory_base_name, block_size); // throws on error
+        if (!create_free_managed_smem(m_managed_shared_memory_base_name, block_size)) // throws on error
+            throw std::exception("no more free slots"); // TODO error codes.
     }
-    catch (interprocess_exception)
+    catch (interprocess_exception& e)
     {
-        // no more memory or slots, todo report.
+        std::cerr << e.what() << '\n';
         throw;
     }
 
     // Finally, create our set
-    m_msm_up_devices_set.reset(new SoundDevicesSet(m_managed_shm, m_opened_managed_sm_name));
-
+    m_msm_up_devices_set = std::make_unique<SharedStringSet>(m_managed_shm, m_opened_managed_sm_name);
 }
 
-MemoryManager::~MemoryManager()
+SharedMemoryManager::~SharedMemoryManager()
 {
     // Destroy our resources inside the shared mem first, before destructing our shared mem.
     m_msm_up_devices_set.reset();
 }
 
-std::string MemoryManager::get_manager_name()
+std::string SharedMemoryManager::get_manager_name()
 {
     return m_opened_managed_sm_name;
 }
 
-std::shared_ptr<boost::interprocess::managed_windows_shared_memory> MemoryManager::get_manager()
+std::shared_ptr<boost::interprocess::managed_windows_shared_memory> SharedMemoryManager::get_manager()
 {
     return m_managed_shm;
 }
 
 /*
     Opens or created a named managed shared memory block, [Not used on this design]
+
+    throws boost::interprocess::interprocess_exception  on error.
 */
-void MemoryManager::open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size)
+void SharedMemoryManager::open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size)
 {
     using namespace boost::interprocess;
 
@@ -125,9 +134,11 @@ void MemoryManager::open_create_managed_smem(const std::string& name, boost::int
     Finds a free name using numbers from 0 to m_max_slots as sufix for base_name and creates
         a managed shared memory block there.
 
-    Returns true if it was created. false otherwise
+    Returns true if a slot was found and shared mem was created
+    Returns false if no slots free, shared mem not created.
+    throws boost::interprocess::interprocess_exception on not handled error.
 */
-bool MemoryManager::create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size)
+bool SharedMemoryManager::create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size)
 {
     using namespace boost::interprocess;
 
@@ -147,12 +158,17 @@ bool MemoryManager::create_free_managed_smem(const std::string& base_name, boost
         }
         catch (boost::interprocess::interprocess_exception& e)
         {
+            if (e.get_error_code() == error_code_t::already_exists_error)
+                continue;
+
             if (free_slot == m_max_slots)
             {
                 std::cerr << e.what() << '\n';
                 return false;
             }
-            continue;
+
+            // else throw error.
+            throw;
         }
     }
 
@@ -167,49 +183,66 @@ bool MemoryManager::create_free_managed_smem(const std::string& base_name, boost
     Search all individual shared memory blocks belonging to other processes and search the set for a matching
         wstring.
 
-    return true if found in any process.
+    Return true if found in any process.
 
     NOTE: we take advange of the fact that unreferenced shared memory on windows gets deleted, so we dont have to
         worry about abandoned mutexes or corrupted objects etc. more info on header.
 */
-bool MemoryManager::find_device(const std::wstring& deviceid)
+bool SharedMemoryManager::find_device(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
     std::string sm_test_name;
-    std::string set_name = m_msm_up_devices_set->get_set_name();
+    // Search for opened blocks of shared memory (ugly yep, but effective)
     for (unsigned short free_slot = 0; free_slot != m_max_slots; free_slot++)
     {
         try
         {
+            std::unique_ptr<SharedStringSet> upset;
+            std::shared_ptr<managed_windows_shared_memory> spmsm;
+            SharedStringSet* pset = nullptr;
+
+            // yeah... i know.
             sm_test_name = m_managed_shared_memory_base_name + "-" + std::to_string(free_slot);
+            if (sm_test_name != m_opened_managed_sm_name)
+            {
+                // try this name
+                spmsm.reset((new managed_windows_shared_memory(open_only, sm_test_name.c_str())));
+                // opens the set if it exists in this managed memory, if not, its created empty.
+                // it can throw if a mutex is abandoned inside.
+                upset = std::make_unique<SharedStringSet>(spmsm, sm_test_name.c_str());
 
-            std::shared_ptr<managed_windows_shared_memory> msm
-                (new managed_windows_shared_memory(open_only, sm_test_name.c_str()));
+                pset = upset.get();
+            }
+            else // its ours, already opened.
+                pset = m_msm_up_devices_set.get();
 
-            // opens the set if it exists in this managed memory.
-            SoundDevicesSet set(msm, sm_test_name.c_str());
-
-            if (set.exists(deviceid))
+            if (pset->exists(deviceid))
             {
                 dwprintf(L"Found %s", deviceid.c_str());
                 dprintf(" AT %s\n", sm_test_name.c_str());
                 return true;
             }
         }
-        catch (boost::interprocess::interprocess_exception)
+        catch (boost::interprocess::interprocess_exception& e)
         {
+            if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
+                || (e.get_error_code() == timeout_when_waiting_error)) // for interprocess conditions
+            {
+                std::cerr << e.what() << std::endl;
+            }
+
             continue;
         }
     }
 
     return false;
 }
-bool MemoryManager::remove_device(const std::wstring& deviceid)
+bool SharedMemoryManager::remove_device(const std::wstring& deviceid)
 {
     return m_msm_up_devices_set->erase(deviceid);
 }
-bool MemoryManager::set_device(const std::wstring& deviceid)
+bool SharedMemoryManager::set_device(const std::wstring& deviceid)
 {
     if (find_device(deviceid))
         return false;
@@ -217,7 +250,7 @@ bool MemoryManager::set_device(const std::wstring& deviceid)
     return m_msm_up_devices_set->insert(deviceid);
 }
 
-
+} // end namespace ::ipc::win
 
 
 
@@ -231,45 +264,35 @@ bool MemoryManager::set_device(const std::wstring& deviceid)
 
 /*
     Creates or opens a set of wstrings in managed shared memory, the name of the set will have 
-        _managed_memory_name as prefix. intended to use the name of the managed shared memory.
-        (boost wont let me get the name from the memory object for security)
+        _prefix_name as prefix.
 
     InterProcess threads safe , local threads NOT safe.
 
     Destruction will delete locally inserted elements only.
 
+    NOTE: is intended to use the name of managed shared memory as _prefix_name.
 
+    throws boost::interprocess::interprocess_exception on error. (bad alloc or abandoned mutex code 22)
 */
-SoundDevicesSet::SoundDevicesSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
-        const std::string& _managed_memory_name)
+SharedStringSet::SharedStringSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
+        const std::string& _prefix_name)
     : m_wp_managed_shm(sp_managed_shm)
-    , m_managed_shm_name(_managed_memory_name)
     , m_we_created_set(false)
 {
     using namespace boost::interprocess;
 
-    if (!sp_managed_shm)
-    {
-        throw std::exception("managed shared memory null");
-    }
-    try
-    {
-        managed_windows_shared_memory(open_only, m_managed_shm_name.c_str());
-    }
-    catch (interprocess_exception)
-    {
-        throw std::exception("managed shared memory name not found");
-    }
+    assert(sp_managed_shm);
 
     offset_t block_size = sp_managed_shm->get_size();
 
-    m_device_set_name = m_managed_shm_name + "-device_set";
-    m_imutex_name = m_managed_shm_name + "-imtx";
-    m_icond_name = m_managed_shm_name + "-icond";
+    m_device_set_name = _prefix_name + "-device_set";
+    m_imutex_name = _prefix_name + "-imtx";
+    m_icond_name = _prefix_name + "-icond";
     try
     {
         // Create a set in shared memory, we need to know if we created or found it, do it atomically
-        auto atomic_construct = std::bind(&SoundDevicesSet::construct_objects_atomic, this, sp_managed_shm);
+        auto atomic_construct = std::bind(&SharedStringSet::construct_objects_atomic, this, sp_managed_shm);
+        // NOTE: the internal mutex of this method can get abandoned too, let it throw back to our SharedMemoryManager
         sp_managed_shm->atomic_func(atomic_construct);
 
         // NOTE: care use different names! or will compile a run with silent problems on windows.
@@ -290,7 +313,7 @@ SoundDevicesSet::SoundDevicesSet(std::shared_ptr<boost::interprocess::managed_wi
         dprintf("IPC Set: sucessfully constructed: %s.\n", m_device_set_name.c_str());
 }
 
-void SoundDevicesSet::construct_objects_atomic(
+void SharedStringSet::construct_objects_atomic(
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm)
 {
     using namespace boost::interprocess;
@@ -306,50 +329,48 @@ void SoundDevicesSet::construct_objects_atomic(
     // Try to find first if we are creating it or referencing it, atomic
     try
     {
-        try
-        {
-            // Construct our sharedmem compatible set inside our managed sharedmem with a name.
-            m_msmpSetWstring = sp_managed_shm->construct<shm_wstring_set>
-                //(object name), (first ctor parameter, second ctor parameter)
-                (m_device_set_name.c_str())(std::less<shm_wstring>(), alloc_inst); // <wstringallocator>
+        // Construct our sharedmem compatible set inside our managed sharedmem with a name.
+        m_msmpSetWstring = sp_managed_shm->construct<shm_wstring_set>
+            //(object name), (first ctor parameter, second ctor parameter)
+            (m_device_set_name.c_str())(std::less<shm_wstring>(), alloc_inst); // <wstringallocator>
 
-            // if the set already exists, find it, we assume no errors here.
-            if (!m_msmpSetWstring)
-            {
-                m_msmpSetWstring = sp_managed_shm->find<shm_wstring_set>
-                    (m_device_set_name.c_str()).first;
-            }
-            else
-                m_we_created_set = true;
-        }
-        // NOTE: boost doc is wrong, throws if already exists, it doesnt return 0 as it says.
-        catch (interprocess_exception& e)
-        {
-            // if the set already exists, find it, we assume no errors here.
-            if (!m_msmpSetWstring)
-            {
-                m_msmpSetWstring = sp_managed_shm->find<shm_wstring_set>
-                    (m_device_set_name.c_str()).first;
-            }
-            else
-                m_we_created_set = true;
-        }
+        // NOTE: Doc says it returns 0 if exists, either way i leave a copy of the handle code here too.
 
+        // if the set already exists, find it, we assume no errors here.
+        if (!m_msmpSetWstring)
+        {
+            m_msmpSetWstring = sp_managed_shm->find<shm_wstring_set>
+                (m_device_set_name.c_str()).first;
+        }
+        else
+            m_we_created_set = true;
     }
-    catch (boost::interprocess::bad_alloc &e)
+    // NOTE: boost doc is wrong, throws if already exists, it doesnt return 0 as it says.
+    catch (interprocess_exception& e)
     {
-        std::cerr << "managed shared mememory bad_alloc " << e.what() << '\n';
-        throw;
+        if (e.get_error_code() == error_code_t::already_exists_error)
+        {
+            // if the set already exists, find it
+            if (!m_msmpSetWstring)
+            {
+                m_msmpSetWstring = sp_managed_shm->find<shm_wstring_set>
+                    (m_device_set_name.c_str()).first;
+            }
+            else
+                m_we_created_set = true;
+        }
+        else
+            // else throw
+            throw;
     }
 
 }
 
-SoundDevicesSet::~SoundDevicesSet()
+SharedStringSet::~SharedStringSet()
 {
     //! not outside: named_mutex::remove("mtx-GUID");
     //! not outside: named_condition::remove("cnd-GUID");
     using namespace boost::interprocess;
-    //
 
     std::shared_ptr<managed_windows_shared_memory> sp_managed_shm = m_wp_managed_shm.lock();
     if (!sp_managed_shm)
@@ -357,34 +378,31 @@ SoundDevicesSet::~SoundDevicesSet()
 
     if (m_msmpSetWstring)
     {
+        //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex); //(make this atomic)
+
         // Delete what we locally inserted
         for (auto i : m_local_device_count)
             erase(i);
     }
 
     // Dont delete mutex, we dont know who is goign to use it
-#if 0
-    if (m_msmp_mutex)
-        sp_managed_shm->destroy_ptr(m_msmp_mutex);
-    if (m_msmp_cond)
-        sp_managed_shm->destroy_ptr(m_msmp_cond);
-#endif
-
 }
 
-bool SoundDevicesSet::insert(const std::wstring& deviceid)
+bool SharedStringSet::insert(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
     std::shared_ptr<managed_windows_shared_memory> m_managed_shm = m_wp_managed_shm.lock();
     if (!m_managed_shm) return false;
 
-    // Dont use boost mutex, really, they arent reliable
-    // for example, on windows, timed wait doesnt work
-    // if the mutex gets abandoned, with no timed wait working its difficult to re aquire
-    // the only reliable way is use windows native mutex or..
-    // as we do now: store a individual set for every process as the only writer, the others just read.
-    // i know.. its tricky, someday ill think of something, abandoned mutexes are a big headache.
+    // Ok, as this set has only one writer (using per process shared mem segments)
+    //      we dont need mutexes.
+    // IF we use them, define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING and his MS counterpart
+    //      and check for abandonement using inteprocess_exeption error_code_t::timeout_when_locking_error
+    //      assume abandonement of mutex and take neccesary action.
+    //  In this case we currently use per process shared segments, so for now we dont use mutex.
+    //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 too.
+    //      in that case let throw unchain to our SharedMemoryManager.
     //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
     void_shm_allocator alloc_inst(m_managed_shm->get_segment_manager());
@@ -402,19 +420,21 @@ bool SoundDevicesSet::insert(const std::wstring& deviceid)
     return true;
 }
 
-bool SoundDevicesSet::erase(const std::wstring& deviceid)
+bool SharedStringSet::erase(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
     std::shared_ptr<managed_windows_shared_memory> m_managed_shm = m_wp_managed_shm.lock();
     if (!m_managed_shm) return false;
 
-    // Dont use boost mutex, really, they arent reliable
-    // for example, on windows, timed wait doesnt work
-    // if the mutex gets abandoned, with no timed wait working its difficult to re aquire
-    // the only reliable way is use windows native mutex or..
-    // as we do now: store a individual set for every process as the only writer, the others just read.
-    // i know.. its tricky, someday ill think of something, abandoned mutexes are a big headache.
+    // Ok, as this set has only one writer (using per process shared mem segments)
+    //      we dont need mutexes.
+    // IF we use them, define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING and his MS counterpart
+    //      and check for abandonement using inteprocess_exeption error_code_t::timeout_when_locking_error
+    //      assume abandonement of mutex and take neccesary action.
+    //  In this case we currently use per process shared segments, so for now we dont use mutex.
+    //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 too.
+    //      in that case let throw unchain to our SharedMemoryManager.
     //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
     try
@@ -436,19 +456,21 @@ bool SoundDevicesSet::erase(const std::wstring& deviceid)
     return false;
 }
 
-bool SoundDevicesSet::exists(const std::wstring& deviceid)
+bool SharedStringSet::exists(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
     std::shared_ptr<managed_windows_shared_memory> m_managed_shm = m_wp_managed_shm.lock();
     if (!m_managed_shm) return false;
 
-    // Dont use boost mutex, really, they arent reliable
-    // for example, on windows, timed wait doesnt work
-    // if the mutex gets abandoned, with no timed wait working its difficult to re aquire
-    // the only reliable way is use windows native mutex or..
-    // as we do now: store a individual set for every process as the only writer, the others just read.
-    // i know.. its tricky, someday ill think of something, abandoned mutexes are a big headache.
+    // Ok, as this set has only one writer (using per process shared mem segments)
+    //      we dont need mutexes.
+    // IF we use them, define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING and his MS counterpart
+    //      and check for abandonement using inteprocess_exeption error_code_t::timeout_when_locking_error
+    //      assume abandonement of mutex and take neccesary action.
+    //  In this case we currently use per process shared segments, so for now we dont use mutex.
+    //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 too.
+    //      in that case let throw unchain to our SharedMemoryManager.
     //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
     try
@@ -469,7 +491,10 @@ bool SoundDevicesSet::exists(const std::wstring& deviceid)
     return false;
 }
 
-std::string SoundDevicesSet::get_set_name()
+std::string SharedStringSet::get_set_name()
 {
     return m_device_set_name;
 }
+
+} // end namespace ipc
+} // end namespace vo
