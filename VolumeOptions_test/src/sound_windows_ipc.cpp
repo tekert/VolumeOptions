@@ -30,14 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/utilities.h"
-#include "../volumeoptions/sound_windows_ipc.h"
-
-// Some protection for internal library abandoned mutexes, throws error 22(mutex) 23(condition) on timeout
-//  define it before boost includes.
-#ifndef BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
-//#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
-//#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 2000
-#endif
+#include "../volumeoptions/sound_windows_ipc.h" // NOTE: include this it before boost/interprocess includes
 
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
@@ -48,6 +41,8 @@ namespace win {
 
 /*
     See notes on header to understand all this.
+
+    throws boost::interproces::interprocess_exception on managed segment creation error.
 */
 SharedMemoryManager::SharedMemoryManager()
     : m_max_slots(50)
@@ -72,7 +67,10 @@ SharedMemoryManager::SharedMemoryManager()
             throw std::exception("no more free slots"); // TODO error codes.
 
         m_rmutex = m_managed_shm->find_or_construct<interprocess_recursive_mutex>
-            (m_interp_recursive_mutex_base_name.c_str())();
+            (m_interp_recursive_mutex_name.c_str())();
+
+        // Finally, create our set
+        m_msm_up_devices_set = std::make_unique<SharedStringSet>(m_managed_shm, m_opened_managed_sm_name);
     }
     catch (interprocess_exception& e)
     {
@@ -80,8 +78,6 @@ SharedMemoryManager::SharedMemoryManager()
         throw;
     }
 
-    // Finally, create our set
-    m_msm_up_devices_set = std::make_unique<SharedStringSet>(m_managed_shm, m_opened_managed_sm_name);
 }
 
 SharedMemoryManager::~SharedMemoryManager()
@@ -213,7 +209,7 @@ retry:
             {
                 std::unique_ptr<SharedStringSet> upset;
                 std::shared_ptr<managed_windows_shared_memory> spmsm;
-                SharedStringSet* pset = nullptr;
+                SharedStringSet* pset_offset = nullptr;
 
                 // yeah... i know.
                 sm_test_name = m_managed_shared_memory_base_name + "-" + std::to_string(free_slot);
@@ -225,12 +221,12 @@ retry:
                     // it can throw if a mutex is abandoned inside.
                     upset = std::make_unique<SharedStringSet>(spmsm, sm_test_name.c_str());
 
-                    pset = upset.get();
+                    pset_offset = upset.get();
                 }
                 else // its ours, already opened.
-                    pset = m_msm_up_devices_set.get();
+                    pset_offset = m_msm_up_devices_set.get();
 
-                if (pset->exists(deviceid))
+                if (pset_offset->exists(deviceid))
                 {
                     dwprintf(L"Found %s", deviceid.c_str());
                     dprintf(" AT %s\n", sm_test_name.c_str());
@@ -257,11 +253,11 @@ retry:
             << e.get_native_error() << std::endl;
 
         if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
-            goto retry; // instead of caling the same function recursive.. bah
+            goto retry; // instead of caling the same function recursive..
     }
 
     vo::high_resolution_clock::time_point later = vo::high_resolution_clock::now();
-    printf("find took: %llu microsec\n", std::chrono::duration_cast<std::chrono::microseconds>(later - now).count());
+    dprintf("find took: %llu microsec\n", std::chrono::duration_cast<std::chrono::microseconds>(later - now).count());
 
     return false;
 }
@@ -285,7 +281,7 @@ retry:
             << e.get_native_error() << std::endl;
 
         if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
-            goto retry; // instead of caling the same function recursive.. bah
+            goto retry; // instead of caling the same function recursive..
     }
 
     return false;
@@ -313,7 +309,7 @@ retry:
             << e.get_native_error() << std::endl;
 
         if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
-            goto retry; // instead of caling the same function recursive.. bah
+            goto retry; // instead of caling the same function recursive..
     }
 
     return false;
@@ -344,7 +340,7 @@ retry:
     throws boost::interprocess::interprocess_exception on error. (bad alloc or abandoned mutex code 22)
 */
 SharedStringSet::SharedStringSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
-        const std::string& _prefix_name)
+    const std::string& _prefix_name)
     : m_wp_managed_shm(sp_managed_shm)
     , m_we_created_set(false)
     , m_convertible_void_alloc(sp_managed_shm ? sp_managed_shm->get_segment_manager() : 0)
@@ -370,8 +366,6 @@ SharedStringSet::SharedStringSet(std::shared_ptr<boost::interprocess::managed_wi
         //      or we'll have to delete it.
         m_msmp_mutex = sp_managed_shm->find_or_construct<interprocess_recursive_mutex>(m_imutex_name.c_str())();
         //m_msmp_cond = sp_managed_shm->find_or_construct<interprocess_condition>(m_icond_name.c_str())();
-        //! Not outside: named_mutex named_mtx{ open_or_create, "mtx-GUID" };
-        //! Not outside: named_condition named_cnd{ open_or_create, "cnd-GUID" };
     }
     catch (boost::interprocess::bad_alloc &e)
     {
@@ -380,13 +374,15 @@ SharedStringSet::SharedStringSet(std::shared_ptr<boost::interprocess::managed_wi
     }
 
     if (m_we_created_set)
+    {
         dprintf("IPC Set: sucessfully constructed: %s.\n", m_device_set_name.c_str());
+    }
 }
 
 /*
     boost::interprocess managed memory internal mutex can get abandoned here....
-        nothing we can do exept use individual shared memory segments and discart the segment
-        if boost::interprocess throws error_code_t::timeout_when_locking_error
+        nothing we can do exept use individual shared memory segments and discard the segment
+        if boost::interprocess throws mutex abanadoned like error (code 22, 24).
 */
 void SharedStringSet::construct_objects_atomic(
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm)
@@ -395,9 +391,6 @@ void SharedStringSet::construct_objects_atomic(
 
     if (!sp_managed_shm) // this shouldn't happen
         throw std::exception("construct_objects_atomic: managed shared memory pointer null");
-
-    //! not needed: wchar_t_shm_alocator  wcharallocator(segment.get_segment_manager());
-    //! not needed: wstring_shm_allocator wstringallocator(segment.get_segment_manager());
 
     // Try to find first if we are creating it or referencing it, atomic
     try
@@ -466,20 +459,25 @@ bool SharedStringSet::insert(const std::wstring& deviceid)
     std::shared_ptr<managed_windows_shared_memory> m_managed_shm = m_wp_managed_shm.lock();
     if (!m_managed_shm) return false;
 
-    // Ok, as this set has only one writer (using per process shared mem segments)
-    //      we dont need mutexes.
-    // IF we use them, define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING and his MS counterpart
+    // If using generic default interprocess mutexes:
+    //      define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING and his MS counterpart
     //      and check for abandonement using inteprocess_exeption error_code_t::timeout_when_locking_error
-    //      assume abandonement of mutex and take neccesary action.
-    //  In this case we currently use per process shared segments, so for now we dont use mutex.
-    //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 too.
-    //      in that case let throw unchain to our SharedMemoryManager.
-    //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    //      assume abandonement, mutex will get locked after throw without chance to reclaim it or transfer ownership.
+    //      (currently boost lib doesnt support it on generic mutex)
+    //
+    // If using native windows interprocess mutex: (currently using those)
+    //      locking an abandoned mutex will throw error_code_t::owner_dead_error, it will unlock the mutex
+    //      after throw so we can reclaim it, but object state will be undefined, we currently use separate
+    //      shared mems segments for that, so we have options.
+    //
+    //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 using
+    //      generic mutex or code 24(owner_dead_error) usign native windows mutex, in that case let
+    //      throw unchain back to our SharedMemoryManager.
+    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
-    void_shm_allocator convertible_void_alloc(m_managed_shm->get_segment_manager());
     try
     {
-        m_set_wstring_offset->emplace(deviceid.c_str(), convertible_void_alloc);
+        m_set_wstring_offset->emplace(deviceid.c_str(), m_convertible_void_alloc);
         m_local_device_count.insert(deviceid);
     }
     catch (boost::interprocess::bad_alloc &e)
@@ -499,7 +497,7 @@ bool SharedStringSet::erase(const std::wstring& deviceid)
     if (!m_managed_shm) return false;
 
     // *See insert comment.
-    //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
     try
     {
@@ -527,7 +525,7 @@ bool SharedStringSet::exists(const std::wstring& deviceid) const
     if (!m_managed_shm) return false;
 
     // *See insert comment.
-    //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
 
     try
     {

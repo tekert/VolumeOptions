@@ -31,26 +31,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SOUND_WINDOWS_IPC_H
 #define SOUND_WINDOWS_IPC_H
 
-// Some protection for internal library abandoned mutexes, throws error 22(mutex) 23(condition) on timeout
-//#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
-//#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 3000
-
 #define BOOST_USE_WINDOWS_H
 
 #include <boost/interprocess/managed_windows_shared_memory.hpp>
+
+#if defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+// Some protection for internal library abandoned generic mutexes, throws error 22(mutex) 23(condition) on timeout
+#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
+#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 3000
+#endif
+
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
 // These below must be included using native windows mutexes
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
-
+#include <boost/interprocess/sync/interprocess_condition.hpp>
 
 // Note, boost 1_57_0  boost/interprocess/detail/workaround.hpp was eddited to use experimental windows native sync
 //  this was done commenting out the line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION
-//  on future boost versions this may change and no longer be experimental.
-#if defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
-#error "Please comment line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION in boost/interprocess/detail/workaround.hpp"
+//  on future boost versions this may change and no longer be experimental, works very good, even better than default.
+#if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+//#error "Please comment line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION in boost/interprocess/detail/workaround.hpp"
 #endif
 
 
@@ -194,7 +197,7 @@ namespace win
         boost::interprocess::interprocess_recursive_mutex *m_rmutex = nullptr;
 
         const std::string m_managed_shared_memory_base_name = "win_managed_mem-"VO_GUID_STRING;
-        const std::string m_interp_recursive_mutex_base_name = "win_interp_recursive_mutex-"VO_GUID_STRING;
+        const std::string m_interp_recursive_mutex_name = "win_interp_recursive_mutex-"VO_GUID_STRING;
 
         bool create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size = 128 * 1024);
         void open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size = 128 * 1024);
