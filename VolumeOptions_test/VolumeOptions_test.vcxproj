@@ -141,6 +141,7 @@
     <ClCompile Include="src\sound_windows.cpp" />
     <ClCompile Include="src\sound_windows_ipc.cpp" />
     <ClCompile Include="src\test_sound.cpp" />
+    <ClCompile Include="src\utilities.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\async_queue.h" />
@@ -155,6 +156,7 @@
     <ClInclude Include="volumeoptions\sound_plugin_gui.h" />
     <ClInclude Include="volumeoptions\sound_windows_ipc.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
+    <ClInclude Include="volumeoptions\utilities.h" />
     <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
   </ItemGroup>

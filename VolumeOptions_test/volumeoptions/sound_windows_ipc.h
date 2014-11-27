@@ -31,15 +31,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SOUND_WINDOWS_IPC_H
 #define SOUND_WINDOWS_IPC_H
 
-#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
-#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 2000
+// Some protection for internal library abandoned mutexes, throws error 22(mutex) 23(condition) on timeout
+//#define BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING
+//#define BOOST_INTERPROCESS_TIMEOUT_WHEN_LOCKING_DURATION_MS 3000
+
+#define BOOST_USE_WINDOWS_H
 
 #include <boost/interprocess/managed_windows_shared_memory.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
+// These below must be included using native windows mutexes
+#include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
-#include <boost/interprocess/sync/interprocess_condition.hpp>
+
+
+// Note, boost 1_57_0  boost/interprocess/detail/workaround.hpp was eddited to use experimental windows native sync
+//  this was done commenting out the line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION
+//  on future boost versions this may change and no longer be experimental.
+#if defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+#error "Please comment line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION in boost/interprocess/detail/workaround.hpp"
+#endif
+
 
 #include <set>
 #include <string>
@@ -50,47 +63,52 @@ namespace ipc {
 
 /*
     Ok, this is tricky, we need to protect access to a shared object.
-        boost managed mem is already protected for creating objects, finding objects references... you get the idea.
+        boost managed mem is already protected for creating objects, finding objects references with a internal mutex.
 
-    The thing is.. if we use mutex to protect an object internals in a single shared memory, and the process
+    The thing is.. if we use a mutex to protect an object stored in a single shared memory, and the process
         terminates while holding a mutex we will get undefined state in our object, if we lock the mutex on destruction
         to erase data, we are calling for trouble too, object destruction is also called on process abort depending.
-    Even worse.. the internal library alloc mutex can get abandoned, we can check if its abandoned with a defined timer
-           then boost::interprocess throws if abadoned, but we cant unlock it, so the shared memory is dead basically. 
+    Even worse.. the internal library managed shared memory alloc mutex can get abandoned. in that case there could
+        be unlinked allocated memory (sort of leak in a segment) or if using atomic_func, partial object creation,
+        in essence.. a problem.
+
 
     Solution:
 
-    ALL_PLATFORMS: use robust mutexes, it involves PID cheking, Process resource cheking, swap ownership. 
-        its a little experimental/green for me.
+    ALL_PLATFORMS: use robust mutexes or timed mutexes to check for abandonement and then recreate the segment
+        with a shadow backup copy and a log like databases do.
 
     WINDOWS_ONLY: a simple solution that works on windows is taking advantage that the OS will remove the shared
         memory when the process terminates, that means every process should write to his own segment of shared mem
         using a easy to find/iterate name for the other process/es to find.
         We have to write our object there, not only a mutex because the object could be left in undefined state.
-        This solution is only apropiate when not many access are done.
-        OR just use native mutexes.
+        This solution is only apropiate when not many access are done and a limited number of process will use it.
+        ugly yeap.. until i can think of something else.
 
-        And now we finally have this implementation, the windows way: (subject to change)
+        Current implementation: windows only (subject to change on library updates):
 
-        Creates his own shared SharedStringSet in his own shared memory, and every time is
-        going to insert something, it searchs for others shared mems currently open(not process terminated) and checks
-        if it can find something before inserting, ugly but effective in less code, we dont need performance on this..
+        Every process creates his own shared SharedStringSet in his "own" shared memory, and every time is
+        going to access the object it locks a shared mutex using native windows mutex so we can check for abandonement,
+        it searchs for others shared mems currently open(not process terminated) and checks if it can find something,
+        ugly but effective, we dont need performance on this.. besided i tested a few nanoseconds to search 50 mems.
 
         Every process has:
             In his 'own' shared segment:
-            * const named string object with his PID. (TODO)
+            * const named string object with his PID. (TODO for message queue)
             * set with his current monitored device IDs.
 
             (every one of the message queues uses a modification of boost message queues for windows managed mem)
             In multiple shared segments (transparent):
-            * message queue for receiving messages. (WORKING)
-            *** multiple message queues to broadcast or send messages. (WORKING)
+            *one message queue for receiving messages. (WORKING)
+            *multiple message queues to broadcast or send individual messages. (WORKING)
+
+            We serialize access to shared mem iteration with a shared native mutex (it must support abandonement error)
 
     Until i can find a way to garantee object state: 
-        maybe with object cheking/reconstruction and boost timed mutex
-        or cheking if PID is up on short timer etc
+        maybe with object cheking/reconstruction, boost robust mutex or native mutex and database like logs.
         or a better way to do it i will use this.
 
+    NOTE: found some hidden libary native windows mutex wraps, they are better than the generic ones.
 */
 
 
@@ -104,10 +122,10 @@ public:
     ~SharedStringSet();
 
     bool insert(const std::wstring& deviceid);
-    bool exists(const std::wstring& deviceid);
+    bool exists(const std::wstring& deviceid) const;
     bool erase(const std::wstring& deviceid);
 
-    std::string get_set_name();
+    std::string get_set_name() const;
 
     // Typedefs of allocators and containers
 
@@ -132,11 +150,14 @@ private:
     void construct_objects_atomic(
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm);
 
-    // Set to store monitored deviceID wstrings globaly
-    shm_wstring_set* m_msmpSetWstring = nullptr; // managed shared memory pointer to wstring set.
+    // An allocator convertible to any allocator<T, segment_manager_t> type
+    void_shm_allocator m_convertible_void_alloc;
+
+    // Set to store monitored deviceID wstrings in shared memory
+    shm_wstring_set* m_set_wstring_offset = nullptr; // managed shared memory pointer to wstring set.
     std::set<std::wstring> m_local_device_count; // keeps track of local insertions to erase them from sharedmem on destruction.
 
-    // To Sync object internals (can hang on process termination...)
+    // To Sync object internals (can hang on process termination..., not used)
     boost::interprocess::interprocess_recursive_mutex* m_msmp_mutex = nullptr;
     boost::interprocess::interprocess_condition* m_msmp_cond = nullptr;
 
@@ -168,20 +189,22 @@ namespace win
 
     private:
 
+        // Our shared objects:
+        std::unique_ptr<SharedStringSet> m_msm_up_devices_set;
+        boost::interprocess::interprocess_recursive_mutex *m_rmutex = nullptr;
+
         const std::string m_managed_shared_memory_base_name = "win_managed_mem-"VO_GUID_STRING;
+        const std::string m_interp_recursive_mutex_base_name = "win_interp_recursive_mutex-"VO_GUID_STRING;
 
         bool create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size = 128 * 1024);
         void open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size = 128 * 1024);
-
-        std::unique_ptr<SharedStringSet> m_msm_up_devices_set;
 
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_managed_shm;
 
         std::string m_opened_managed_sm_name;
 
-        const unsigned short m_max_slots;
-
-        bool m_we_created_shared_mem;
+        const unsigned short m_max_slots; // max number of shared memory segments for processes to take.
+        const unsigned int m_max_retry = m_max_slots; // how many retries to lock an abandoned windows native mutex
     };
 
 } // end namespace win

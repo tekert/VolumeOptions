@@ -48,6 +48,9 @@
     <ClCompile Include="src\sound_windows_ipc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\utilities.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\sound_plugin.h">
@@ -81,6 +84,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\sound_windows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\utilities.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
