@@ -66,7 +66,7 @@ SharedMemoryManager::SharedMemoryManager()
         if (!create_free_managed_smem(m_managed_shared_memory_base_name, block_size)) // throws on error
             throw std::exception("no more free slots"); // TODO error codes.
 
-        m_rmutex = m_managed_shm->find_or_construct<interprocess_recursive_mutex>
+        m_sharedset_rmutex_offset = m_managed_shm->find_or_construct<interprocess_recursive_mutex>
             (m_interp_recursive_mutex_name.c_str())();
 
         // Finally, create our set
@@ -182,12 +182,12 @@ bool SharedMemoryManager::create_free_managed_smem(const std::string& base_name,
     Here comes all the uglyness described on header, at least it works better on windows.
 
     Search all individual shared memory blocks belonging to other processes and search the set for a matching
-        wstring.
+        wstring, this operation is atomic. (it needs to be in current form)
 
     Return true if found in any process.
 
     NOTE: we take advange of the fact that unreferenced shared memory on windows gets deleted, so we dont have to
-        worry about abandoned mutexes or corrupted objects etc. more info on header.
+        worry about corrupted objects etc. more info on header.
 */
 bool SharedMemoryManager::find_device(const std::wstring& deviceid)
 {
@@ -199,7 +199,7 @@ retry:
 
     try
     {
-        scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex);
+        scoped_lock<interprocess_recursive_mutex> lock(*m_sharedset_rmutex_offset);
 
         std::string sm_test_name;
         // Search for opened blocks of shared memory (ugly yep, but effective)
@@ -270,7 +270,7 @@ bool SharedMemoryManager::remove_device(const std::wstring& deviceid)
 retry:
     try
     {
-        scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex);
+        scoped_lock<interprocess_recursive_mutex> lock(*m_sharedset_rmutex_offset);
 
         return m_msm_up_devices_set->erase(deviceid);
     }
@@ -295,7 +295,7 @@ bool SharedMemoryManager::set_device(const std::wstring& deviceid)
 retry:
     try
     {
-        scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex);
+        scoped_lock<interprocess_recursive_mutex> lock(*m_sharedset_rmutex_offset);
 
         if (find_device(deviceid))
             return false;
@@ -364,7 +364,7 @@ SharedStringSet::SharedStringSet(std::shared_ptr<boost::interprocess::managed_wi
         // NOTE: care use different names! or will compile a run with silent problems on windows.
         // Construct anonymous sync primitives inside our managed "windows" sharedmem, not outside 
         //      or we'll have to delete it.
-        m_msmp_mutex = sp_managed_shm->find_or_construct<interprocess_recursive_mutex>(m_imutex_name.c_str())();
+        m_rmutex_offset = sp_managed_shm->find_or_construct<interprocess_recursive_mutex>(m_imutex_name.c_str())();
         //m_msmp_cond = sp_managed_shm->find_or_construct<interprocess_condition>(m_icond_name.c_str())();
     }
     catch (boost::interprocess::bad_alloc &e)
@@ -432,26 +432,50 @@ void SharedStringSet::construct_objects_atomic(
 
 SharedStringSet::~SharedStringSet()
 {
-    //! not outside: named_mutex::remove("mtx-GUID");
-    //! not outside: named_condition::remove("cnd-GUID");
+    using namespace boost::interprocess;
+
+    clear_local_insertions();
+
+    // Dont delete mutex, we dont know who is goign to use it
+}
+
+void SharedStringSet::clear_local_insertions()
+{
     using namespace boost::interprocess;
 
     std::shared_ptr<managed_windows_shared_memory> sp_managed_shm = m_wp_managed_shm.lock();
     if (!sp_managed_shm)
         return;
 
+    int retry_limit = 1, retry = 0;
+
     if (m_set_wstring_offset)
     {
-        //scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex); //(make this atomic)
+        retry_tag:
+        try
+        {
+            scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex_offset); //(make this atomic)
 
-        // Delete what we locally inserted
-        for (auto i : m_local_device_count)
-            erase(i);
+            // Delete what we locally inserted
+            for (auto i : m_local_insertions)
+                erase(i);
+        }
+        catch (interprocess_exception& e)
+        { // we can get or mutex abandoned or bad alloc here.
+
+            if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= retry_limit))
+                goto retry_tag;
+
+            // silently abort on bad alloc
+        }
     }
-
-    // Dont delete mutex, we dont know who is goign to use it
 }
 
+/*
+    returns true if key is inserted, false if another key exists.
+
+    only throws boost::interprocess::bad_alloc on error
+*/
 bool SharedStringSet::insert(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
@@ -473,23 +497,20 @@ bool SharedStringSet::insert(const std::wstring& deviceid)
     //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 using
     //      generic mutex or code 24(owner_dead_error) usign native windows mutex, in that case let
     //      throw unchain back to our SharedMemoryManager.
-    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex_offset);
 
-    try
-    {
-        m_set_wstring_offset->emplace(deviceid.c_str(), m_convertible_void_alloc);
-        m_local_device_count.insert(deviceid);
-    }
-    catch (boost::interprocess::bad_alloc &e)
-    {
-        std::cerr << "managed shared mememory bad_alloc " << e.what() << '\n';
-        return false;
-    }
+    auto pair = m_set_wstring_offset->emplace(deviceid.c_str(), m_convertible_void_alloc);
+    m_local_insertions.insert(deviceid);
 
-    return true;
+    return pair.second;
 }
 
-bool SharedStringSet::erase(const std::wstring& deviceid)
+/*
+    returns true if element was erased, false if no element found to be erased
+
+    only throws boost::interprocess::bad_alloc on error
+*/
+bool SharedStringSet::erase(const std::wstring& deviceid) 
 {
     using namespace boost::interprocess;
 
@@ -497,26 +518,24 @@ bool SharedStringSet::erase(const std::wstring& deviceid)
     if (!m_managed_shm) return false;
 
     // *See insert comment.
-    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex_offset);
 
-    try
-    {
-        shm_wstring shm_deviceid(deviceid.c_str(), m_convertible_void_alloc);
+    shm_wstring shm_deviceid(deviceid.c_str(), m_convertible_void_alloc);
 
-        size_t sz = m_set_wstring_offset->erase(shm_deviceid);
-        if (sz)
-        {
-            return true;
-        }
-    }
-    catch (boost::interprocess::bad_alloc &e)
+    size_t sz = m_set_wstring_offset->erase(shm_deviceid);
+    if (sz)
     {
-        std::cerr << "managed shared mememory bad_alloc " << e.what() << '\n';
+        return true;
     }
 
     return false;
 }
 
+/*
+    returns true if key was found, false otherwise
+
+    only throws boost::interprocess::bad_alloc on error
+*/
 bool SharedStringSet::exists(const std::wstring& deviceid) const
 {
     using namespace boost::interprocess;
@@ -525,20 +544,13 @@ bool SharedStringSet::exists(const std::wstring& deviceid) const
     if (!m_managed_shm) return false;
 
     // *See insert comment.
-    scoped_lock<interprocess_recursive_mutex> lock(*m_msmp_mutex);
+    scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex_offset);
 
-    try
-    {
-        shm_wstring shm_deviceid(deviceid.c_str(), m_convertible_void_alloc);
+    shm_wstring shm_deviceid(deviceid.c_str(), m_convertible_void_alloc);
 
-        if (m_set_wstring_offset->count(shm_deviceid))
-        {
-            return true;
-        }
-    }
-    catch (boost::interprocess::bad_alloc &e)
+    if (m_set_wstring_offset->count(shm_deviceid))
     {
-        std::cerr << "managed shared mememory bad_alloc " << e.what() << '\n';
+        return true;
     }
 
     return false;

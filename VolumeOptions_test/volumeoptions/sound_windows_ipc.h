@@ -128,6 +128,8 @@ public:
     bool exists(const std::wstring& deviceid) const;
     bool erase(const std::wstring& deviceid);
 
+    void clear_local_insertions();
+
     std::string get_set_name() const;
 
     // Typedefs of allocators and containers
@@ -156,13 +158,13 @@ private:
     // An allocator convertible to any allocator<T, segment_manager_t> type
     void_shm_allocator m_convertible_void_alloc;
 
-    // Set to store monitored deviceID wstrings in shared memory
+    // Set to store wstrings in shared memory
     shm_wstring_set* m_set_wstring_offset = nullptr; // managed shared memory pointer to wstring set.
-    std::set<std::wstring> m_local_device_count; // keeps track of local insertions to erase them from sharedmem on destruction.
+    std::set<std::wstring> m_local_insertions; // keeps track of local insertions to erase them from sharedmem on destruction.
 
     // To Sync object internals (can hang on process termination..., not used)
-    boost::interprocess::interprocess_recursive_mutex* m_msmp_mutex = nullptr;
-    boost::interprocess::interprocess_condition* m_msmp_cond = nullptr;
+    boost::interprocess::interprocess_recursive_mutex* m_rmutex_offset = nullptr;
+    boost::interprocess::interprocess_condition* m_cond_offset = nullptr;
 
     // where to find the object in managed memory (empty if not constructed)
     std::string m_device_set_name;
@@ -194,7 +196,7 @@ namespace win
 
         // Our shared objects:
         std::unique_ptr<SharedStringSet> m_msm_up_devices_set;
-        boost::interprocess::interprocess_recursive_mutex *m_rmutex = nullptr;
+        boost::interprocess::interprocess_recursive_mutex *m_sharedset_rmutex_offset = nullptr;
 
         const std::string m_managed_shared_memory_base_name = "win_managed_mem-"VO_GUID_STRING;
         const std::string m_interp_recursive_mutex_name = "win_interp_recursive_mutex-"VO_GUID_STRING;
