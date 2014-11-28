@@ -90,7 +90,7 @@ namespace ipc {
 
         Current implementation: windows only (subject to change on library updates):
 
-        Every process creates his own shared SharedStringSet in his "own" shared memory, and every time is
+        Every process creates his own shared SharedWStringSet in his "own" shared memory, and every time is
         going to access the object it locks a shared mutex using native windows mutex so we can check for abandonement,
         it searchs for others shared mems currently open(not process terminated) and checks if it can find something,
         ugly but effective, we dont need performance on this.. besided i tested a few nanoseconds to search 50 mems.
@@ -115,64 +115,55 @@ namespace ipc {
 */
 
 
+// Typedefs of allocators and containers
+
+// Use windows managed shared mem in this case                                      /////////////////////
+typedef boost::interprocess::managed_windows_shared_memory::segment_manager         segment_manager_t;
+typedef boost::interprocess::allocator<void, segment_manager_t>                     void_shm_allocator;
+                                                                                    /////////////////////
+typedef boost::interprocess::allocator<char, segment_manager_t>                     char_shm_allocator;
+typedef boost::interprocess::basic_string < char,
+    std::char_traits<char>, char_shm_allocator >                                    shm_string;
+                                                                                    /////////////////////
+typedef boost::interprocess::allocator<wchar_t, segment_manager_t>                  wchar_t_shm_alocator;
+typedef boost::interprocess::basic_string < wchar_t, std::char_traits<wchar_t>,
+    wchar_t_shm_alocator >                                                          shm_wstring;
+                                                                                    /////////////////////
+typedef boost::interprocess::allocator<shm_wstring, segment_manager_t>              wstring_shm_allocator;
+typedef boost::interprocess::set < shm_wstring, std::less<shm_wstring>,
+    wstring_shm_allocator >                                                         shm_wstring_set;
+                                                                                    /////////////////////
+
 class WasapiSharedManager;
 
-class SharedStringSet // TODO: template it wstring or string
+/*
+    Instantiates a shared wstring set in managed shared memory indicated by parameter sp_managed_shm
+
+    use get_offsetptr() to obtain the offset shm_wstring_set pointer in local process memory.
+
+    throws on error creating or accessing the shared set.
+*/
+class SharedWStringSet // TODO: template it wstring or string
 {
 public:
-    SharedStringSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
-        const std::string& _managed_memory_name);
-    ~SharedStringSet();
+    SharedWStringSet(std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm,
+        const std::string& set_name);
+    ~SharedWStringSet();
 
-    bool insert(const std::wstring& deviceid);
-    bool exists(const std::wstring& deviceid) const;
-    bool erase(const std::wstring& deviceid);
-
-    void clear_local_insertions();
+    shm_wstring_set* get_localoffsetptr();
 
     std::string get_set_name() const;
-
-    // Typedefs of allocators and containers
-
-    // Use windows managed shared mem in this case                                      /////////////////////
-    typedef boost::interprocess::managed_windows_shared_memory::segment_manager         segment_manager_t;
-    typedef boost::interprocess::allocator<void, segment_manager_t>                     void_shm_allocator;
-                                                                                        /////////////////////
-    typedef boost::interprocess::allocator<char, segment_manager_t>                     char_shm_allocator;
-    typedef boost::interprocess::basic_string < char,
-        std::char_traits<char>, char_shm_allocator >                                    shm_string;
-                                                                                        /////////////////////
-    typedef boost::interprocess::allocator<wchar_t, segment_manager_t>                  wchar_t_shm_alocator;
-    typedef boost::interprocess::basic_string < wchar_t, std::char_traits<wchar_t>,
-        wchar_t_shm_alocator >                                                          shm_wstring;
-                                                                                        /////////////////////
-    typedef boost::interprocess::allocator<shm_wstring, segment_manager_t>              wstring_shm_allocator;
-    typedef boost::interprocess::set < shm_wstring, std::less<shm_wstring>,
-        wstring_shm_allocator >                                                         shm_wstring_set;
-                                                                                        /////////////////////
+    bool we_created_this() const;
+ 
 private:
 
     void construct_objects_atomic(
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> sp_managed_shm);
 
-    // An allocator convertible to any allocator<T, segment_manager_t> type
-    void_shm_allocator m_convertible_void_alloc;
-
     // Set to store wstrings in shared memory
     shm_wstring_set* m_set_wstring_offset = nullptr; // managed shared memory pointer to wstring set.
-    std::set<std::wstring> m_local_insertions; // keeps track of local insertions to erase them from sharedmem on destruction.
 
-    // To Sync object internals (can hang on process termination..., not used)
-    boost::interprocess::interprocess_recursive_mutex* m_rmutex_offset = nullptr;
-    boost::interprocess::interprocess_condition* m_cond_offset = nullptr;
-
-    // where to find the object in managed memory (empty if not constructed)
     std::string m_device_set_name;
-    std::string m_imutex_name;
-    std::string m_icond_name;
-
-    // References to our memory manager
-    std::weak_ptr<boost::interprocess::managed_windows_shared_memory> m_wp_managed_shm;
 
     bool m_we_created_set;
 };
@@ -189,27 +180,41 @@ namespace win
         bool remove_device(const std::wstring& deviceid);
         bool set_device(const std::wstring& deviceid);
 
-        std::string get_manager_name();
-        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_manager();
+        void clear_local_insertions();
+
+        std::string get_personal_opened_manager_name();
+        const std::string m_managed_global_shared_memory_name = "volumeoptions_win_global_msm-"VO_GUID_STRING;
+        const std::string m_interp_recursive_mutex_name = "volumeoptions_win_interp_rmutex-"VO_GUID_STRING;
+
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_personal_shared_mem_manager();
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_global_shared_mem_manager();
 
     private:
 
         // Our shared objects:
-        std::unique_ptr<SharedStringSet> m_msm_up_devices_set;
-        boost::interprocess::interprocess_recursive_mutex *m_sharedset_rmutex_offset = nullptr;
+        std::unique_ptr<SharedWStringSet> m_personal_up_devices_set;
+        boost::interprocess::interprocess_recursive_mutex *m_global_sharedset_rmutex_offset = nullptr;
 
-        const std::string m_managed_shared_memory_base_name = "win_managed_mem-"VO_GUID_STRING;
-        const std::string m_interp_recursive_mutex_name = "win_interp_recursive_mutex-"VO_GUID_STRING;
+        // keeps track of local insertions to erase them from sharedmem on destruction.
+        std::set<std::wstring> m_local_insertions;
+
+        const std::string m_managed_personal_shared_memory_base_name = "volumeoptions_win_personal_msm-"VO_GUID_STRING;
+        const std::string m_managed_personal_devices_set_name = m_managed_personal_shared_memory_base_name + "-devices_set";
 
         bool create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size = 128 * 1024);
         void open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size = 128 * 1024);
 
-        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_managed_shm;
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_managed_shm;
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_personal_managed_shm;
 
-        std::string m_opened_managed_sm_name;
+        std::string m_opened_personal_managed_sm_name;
 
         const unsigned short m_max_slots; // max number of shared memory segments for processes to take.
-        const unsigned int m_max_retry = m_max_slots; // how many retries to lock an abandoned windows native mutex
+#if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+        const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
+#else
+        const unsigned int m_max_retry = m_max_slots; // how many retries to reclaim an abandoned windows native mutex
+#endif
     };
 
 } // end namespace win
