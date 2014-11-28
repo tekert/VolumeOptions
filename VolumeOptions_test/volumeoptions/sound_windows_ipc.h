@@ -115,7 +115,7 @@ namespace ipc {
 */
 
 
-class SharedMemoryManager;
+class WasapiSharedManager;
 
 class SharedStringSet // TODO: template it wstring or string
 {
@@ -179,11 +179,11 @@ private:
 
 namespace win
 {
-    class SharedMemoryManager // TODO: port messaqueue from my test module
+    class WasapiSharedManager // TODO: port messaqueue from my test module
     {
     public:
-        SharedMemoryManager();
-        ~SharedMemoryManager();
+        WasapiSharedManager();
+        ~WasapiSharedManager();
 
         bool find_device(const std::wstring& deviceid);
         bool remove_device(const std::wstring& deviceid);
