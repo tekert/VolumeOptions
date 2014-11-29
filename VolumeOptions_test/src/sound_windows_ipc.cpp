@@ -50,6 +50,7 @@ namespace win {
 */
 WasapiSharedManager::WasapiSharedManager()
     : m_max_slots(50)
+    , m_internal_id()
 {
     using namespace boost::interprocess;
 
@@ -66,20 +67,26 @@ WasapiSharedManager::WasapiSharedManager()
 
     try
     {
+        // --------- Instantiate managed shared sectors first: ---------
+
         // OpenCreate the unique shared memory segment for VolumeOptions.    // throws on error
         open_create_managed_smem(m_managed_global_shared_memory_name, block_size_unique_shared_segment);
 
-        // Find a free slot number for our personal windows shared memory. 
+        // Find a free slot number for our personal windows shared memory. (m_internal_id will be set)
         //  (we will be the writer as explained in header)      // throws on error
         if (!create_free_managed_smem(m_managed_personal_shared_memory_base_name, block_size_personal_shared_segment))
-            throw std::exception("no more free slots"); // TODO error codes.
+            throw std::exception("no more free slots");
+
+        // Create a personal message queue endpoint, to receive messages using internal_id as name suffix.
+        create_message_queue(m_internal_id); // throws on error
+
+        // --------- After managed sectors instantiate sync primitives: ---------
 
         // Instance the unique global mutex for VolumeOptions.
         m_global_sharedset_rmutex_offset = m_global_managed_shm->find_or_construct<interprocess_recursive_mutex>
             (m_interp_recursive_mutex_name.c_str())();
 
-
-        // --------- Now instantiate our objects: ---------
+        // --------- Last of all instantiate our objects: ---------
 
         // Finally, open or create our personal shared set (1 writer (only us), multiple readers)
         m_personal_up_devices_set = std::make_unique<SharedWStringSet>
@@ -102,11 +109,12 @@ WasapiSharedManager::~WasapiSharedManager()
     // unlink our resources inside the shared mem first, before destructing our shared mem.
     m_personal_up_devices_set.reset();
 
+    // TODO: send mq_abort to message queue and join.
 }
 
-std::string WasapiSharedManager::get_personal_opened_manager_name()
+std::string WasapiSharedManager::get_personal_chosen_manager_name()
 {
-    return m_opened_personal_managed_sm_name;
+    return m_chosen_personal_managed_sm_name;
 }
 
 std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
@@ -116,7 +124,7 @@ std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
 }
 
 std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
-WasapiSharedManager::get_global_shared_mem_manager()
+    WasapiSharedManager::get_global_shared_mem_manager()
 {
     return m_global_managed_shm;
 }
@@ -152,8 +160,8 @@ void WasapiSharedManager::open_create_managed_smem(const std::string& name, boos
 }
 
 /*
-    Finds a free name using numbers from 0 to m_max_slots as sufix for base_name and creates
-        a managed shared memory block there.
+    Finds a free name using intergers from 1 to m_max_slots as sufix for base_name and creates
+        a managed shared memory segment there, internal_id will be set to free slot found.
 
     Returns true if a slot was found and shared mem was created
     Returns false if no slots free, shared mem not created.
@@ -164,7 +172,7 @@ bool WasapiSharedManager::create_free_managed_smem(const std::string& base_name,
     using namespace boost::interprocess;
 
     std::string test_name;
-    for (unsigned short free_slot = 0; free_slot != m_max_slots; free_slot++)
+    for (unsigned short free_slot = 1; free_slot != m_max_slots; free_slot++)
     {
         unsigned int retry = 0;
         retry_access:
@@ -175,7 +183,9 @@ bool WasapiSharedManager::create_free_managed_smem(const std::string& base_name,
                 new managed_windows_shared_memory(create_only, test_name.c_str(), block_size));
             dprintf("IPC SharedMem: CREATED - %s\n", test_name.c_str());
 
-            m_opened_personal_managed_sm_name = test_name;
+            m_chosen_personal_managed_sm_name = test_name;
+            m_internal_id = free_slot;
+
             break;
         }
         catch (boost::interprocess::interprocess_exception& e)
@@ -199,20 +209,108 @@ bool WasapiSharedManager::create_free_managed_smem(const std::string& base_name,
     return true;
 }
 
+bool WasapiSharedManager::create_message_queue(unsigned int _id)
+{
+    using namespace boost::interprocess;
+
+    if (!_id) return false;
+
+    m_chosen_personal_message_queue_name = m_personal_message_queue_base_name + "-" + std::to_string(_id);
+    const std::string& name = m_chosen_personal_message_queue_name;
+
+    try
+    {
+        // name must be unique
+        m_personal_message_queue = std::make_shared<message_queue>
+            (create_only                //only create
+            , name.c_str()              //name
+            , 30                        //max message number
+            , sizeof(uint_least32_t)    //max message size
+            );
+
+        // Create a thread to handle incoming messages.
+        m_thread_personal_mq = std::thread(&WasapiSharedManager::mq_handler, this);
+
+        // TODO, now send broadcast.
+    }
+    catch (interprocess_exception)
+    {
+        throw;
+    }
+
+    return true;
+}
+
+bool WasapiSharedManager::mq_send_message(const std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
+        uint_least32_t message, int priority)
+{
+    using namespace boost::interprocess;
+
+    if (!mq_destination.get())
+        return false;
+
+    return mq_destination->try_send(&message, sizeof(uint_least32_t), 0);
+}
+
+void WasapiSharedManager::mq_handler()
+{
+    using namespace boost::interprocess;
+
+    assert(m_personal_message_queue.get());
+
+    uint_least32_t message;
+    unsigned int priority;
+    message_queue::size_type recvd_size;
+    const size_t max_size = m_personal_message_queue->get_max_msg_size();
+
+    bool abort = false;
+    while (!abort)
+    {
+        m_personal_message_queue->receive(&message, sizeof(uint_least32_t), recvd_size, priority);
+
+        dprintf("Received message: %lu  size: %d  priority: %d", message, recvd_size, priority);
+
+        if (recvd_size != max_size) // malformed
+            continue;
+
+        bool handled = true;
+        switch (message)
+        {
+            case mq_test:
+                printf("received test OK\n");
+                break;
+
+            case mq_abort:
+                abort = true;
+                break;
+
+            default:
+                handled = false;
+        }
+
+        if (handled)
+            mq_send_message(m_personal_message_queue, mq_ack);
+        
+    }
+}
+
 /*
     Here comes all the uglyness described on header, at least it works better on windows.
 
     Search all individual shared memory blocks belonging to other processes and search the set for a matching
         wstring, this operation is atomic. (it needs to be)
+    Or of device is supplied scan all the sets of other shared mems and updates our remote map.
 
-    Return true if found in any process.
+    Return true if deviceid found in any process.
+    returns found_in_id with id if supplied deviceid was found in that internal reference number.
 
     NOTE: we take advange of the fact that unreferenced shared memory on windows gets deleted, so we dont have to
         worry about corrupted objects etc. more info on header.
         Abanadoned mutexes are now handled internally with a retry count to reclaim it, if it cant be reclaimed it
             returns false.
 */
-bool WasapiSharedManager::find_device(const std::wstring& deviceid)
+bool WasapiSharedManager::scan_shared_segments(const std::wstring& deviceid,
+        unsigned long *const found_in_id)
 {
     using namespace boost::interprocess;
 
@@ -221,13 +319,13 @@ retry_lock:
     vo::high_resolution_clock::time_point now = vo::high_resolution_clock::now(); // TODO remove this line
     try
     {
+        // This lock is not intended to protect the shared object (this is read only)
+        //  its intended to make this search operation atomic at higher level.
         scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
-
-        void_shm_allocator convertible_void_alloc(m_personal_managed_shm->get_segment_manager());
 
         std::string sm_test_name;
         // Search for opened blocks of shared memory (ugly yep, but effective)
-        for (unsigned short free_slot = 0; free_slot != m_max_slots; free_slot++)
+        for (unsigned short free_slot = 1; free_slot != m_max_slots; free_slot++)
         {
             unsigned int retry_set_access = 0;
             retrysetaccess:
@@ -235,28 +333,43 @@ retry_lock:
             {
                 std::unique_ptr<SharedWStringSet> upset;
                 std::shared_ptr<managed_windows_shared_memory> spmsm;
-                SharedWStringSet* pset_offset = nullptr;
+                SharedWStringSet* pset = nullptr;
 
                 // yeah... i know.
                 sm_test_name = m_managed_personal_shared_memory_base_name + "-" + std::to_string(free_slot);
-                if (sm_test_name != m_opened_personal_managed_sm_name)
+                if (sm_test_name != m_chosen_personal_managed_sm_name)
                 {
                     // try this name
-                    spmsm.reset((new managed_windows_shared_memory(open_only, sm_test_name.c_str())));
+                    spmsm = std::make_shared<managed_windows_shared_memory>(open_only, sm_test_name.c_str());
                     // opens the set if it exists in this managed memory, if not, its created empty.
                     // it can throw if a mutex is abandoned inside.
                     upset = std::make_unique<SharedWStringSet>(spmsm, m_managed_personal_devices_set_name);
 
-                    pset_offset = upset.get();
+                    pset = upset.get();
                 }
                 else // its ours, already opened.
-                    pset_offset = m_personal_up_devices_set.get();
+                    pset = m_personal_up_devices_set.get();
 
-                // Finally checks if its there, if not, continue searching the next slot.
-                if (pset_offset->get_localoffsetptr()->count(shm_wstring(deviceid.c_str(), convertible_void_alloc)))
-                {
-                    dwprintf(L"Found %s", deviceid.c_str()); dprintf(" in %s\n", sm_test_name.c_str());
-                    return true;
+                // NOTE: We dont need a mutex here, we are already using a global mutex for other purpose.
+
+
+                if (!deviceid.empty())
+                {   // check if device its there, if not, continue searching the next slot.
+                    void_shm_allocator convertible_void_alloc(spmsm->get_segment_manager());
+                    if (pset->get_localoffsetptr()->count(shm_wstring(deviceid.c_str(), convertible_void_alloc)))
+                    {
+                        dwprintf(L"Found %s", deviceid.c_str()); dprintf(" in %s\n", sm_test_name.c_str());
+                        if (found_in_id) *found_in_id = free_slot;
+                        return true;
+                    }
+                }
+                else
+                {   // not really used in this design
+                    // Scan this segment's set to find wich devices it has.
+                    for (auto rd_id : *pset->get_localoffsetptr())
+                    {   // update our local remote device managers map.
+                        m_remote_device_manager[rd_id.c_str()] = free_slot;
+                    }
                 }
             }
             catch (boost::interprocess::interprocess_exception& e)
@@ -296,7 +409,12 @@ retry_lock:
     return false;
 }
 
-bool WasapiSharedManager::remove_device(const std::wstring& deviceid)
+bool WasapiSharedManager::find_device(const std::wstring& deviceid)
+{
+    return this->scan_shared_segments(deviceid);
+}
+
+bool WasapiSharedManager::unset_device(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
@@ -314,6 +432,9 @@ retry_lock:
         if (sz)
         {
             m_local_insertions.erase(deviceid);
+
+            // TODO: send message to other processes depending on us.
+
             return true;
         }
     }
@@ -343,7 +464,7 @@ retry_lock:
         //      and check for abandonement using inteprocess_exeption error_code_t::timeout_when_locking_error
         //      assume abandonement, mutex will get locked after throw without chance to reclaim it or 
         //      transfer ownership.
-        //      (currently boost lib doesnt support it on generic mutex, so we are dead there)
+        //      (currently boost lib doesnt support it on generic spin mutex, so we are dead there)
         //
         // If using native windows interprocess mutex: (currently using those)
         //      locking an abandoned mutex will throw error_code_t::owner_dead_error, it will unlock the mutex
@@ -352,12 +473,19 @@ retry_lock:
         //
         //  Either way, managed memory internal mutex can get abandoned too, so alloc will throw code 22 using
         //      generic mutex or code 24(owner_dead_error) usign native windows mutex, in that case catch it and
-        //      retry.
+        //      retry, anyone could've abandoned 'm_personal_managed_shm internal managed mem mutex'.
         scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
 
         // First check if this device is in any of our processes.
-        if (find_device(deviceid))
+        unsigned long remote_id;
+        if (scan_shared_segments(deviceid, &remote_id))
+        {
+            m_remote_device_manager[deviceid] = remote_id;
+
+            // TODO: send broadcast message to other processes.
+
             return false;
+        }
 
         void_shm_allocator convertible_void_alloc(m_personal_managed_shm->get_segment_manager());
         auto pair = m_personal_up_devices_set->get_localoffsetptr()->emplace(deviceid.c_str(), convertible_void_alloc);
@@ -388,11 +516,12 @@ void WasapiSharedManager::clear_local_insertions()
     retry_lock:
         try
         {
-            scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset); //(make this atomic)
+            // serialize writters
+            scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
 
             // Delete what we locally inserted
             for (auto i : m_local_insertions)
-                remove_device(i);
+                unset_device(i);
         }
         catch (interprocess_exception& e)
         { // we can get or mutex abandoned or bad alloc here.
@@ -519,40 +648,6 @@ bool SharedWStringSet::we_created_this() const
     return m_we_created_set;
 }
 
-
-#if 0
-void SharedWStringSet::clear_local_insertions()
-{
-    using namespace boost::interprocess;
-
-    std::shared_ptr<managed_windows_shared_memory> sp_managed_shm = m_wp_managed_shm.lock();
-    if (!sp_managed_shm)
-        return;
-
-    int retry_limit = 1, retry = 0;
-
-    if (m_set_wstring_offset)
-    {
-    retry_tag:
-        try
-        {
-            scoped_lock<interprocess_recursive_mutex> lock(*m_rmutex_offset); //(make this atomic)
-
-            // Delete what we locally inserted
-            for (auto i : m_local_insertions)
-                erase(i);
-        }
-        catch (interprocess_exception& e)
-        { // we can get or mutex abandoned or bad alloc here.
-
-            if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= retry_limit))
-                goto retry_tag;
-
-            // silently abort on bad alloc
-        }
-    }
-}
-#endif
 
 } // end namespace ipc
 } // end namespace vo

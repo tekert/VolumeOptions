@@ -37,11 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define VO_GUID_STRING "{D2C1BB1F-47D8-48BF-AC69-7E4E7B2DB6BF}"
 
 
-
-
 //TODO: do we really need this macro? was originaly for vista support but...
 #define VO_ENABLE_EVENTS
 
+
+
+
+// TODO: clean this below
 
 #define VO_USE_SYSTEM_ASSERT 0 // 1 = use standard system asserts, 0 = use our asserts
 #define VO_VERSION "test" // TODO remove this

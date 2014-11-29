@@ -145,7 +145,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\async_queue.h" />
-    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue.hpp" />
+    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue_win.hpp" />
     <ClInclude Include="volumeoptions\debug.h" />
     <ClInclude Include="volumeoptions\logger.hpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>

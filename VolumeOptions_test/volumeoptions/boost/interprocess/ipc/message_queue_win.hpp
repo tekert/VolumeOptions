@@ -194,8 +194,8 @@ class message_queue_t
    //!Returns the needed memory size for the shared message queue.
    //!Never throws
    static size_type get_mem_size(size_type max_msg_size, size_type max_num_msg);
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS)
-   typedef ipcdetail::managed_open_or_create_impl<windows_shared_memory, 0, false, false> open_create_impl_t; // Paul Dolcet
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS) // EDIT added
+   typedef ipcdetail::managed_open_or_create_impl<windows_shared_memory, 0, false, false> open_create_impl_t; // EDIT added
 #else
    typedef ipcdetail::managed_open_or_create_impl<shared_memory_object, 0, true, false> open_create_impl_t;
 #endif
@@ -306,8 +306,8 @@ class mq_hdr_t
       pointer_traits<void_pointer>::template
          rebind_pointer<msg_hdr_ptr_t>::type                              msg_hdr_ptr_ptr_t;
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS)
-   typedef ipcdetail::managed_open_or_create_impl<windows_shared_memory, 0, false, false> open_create_impl_t; // Paul Dolcet
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS) // EDIT added
+   typedef ipcdetail::managed_open_or_create_impl<windows_shared_memory, 0, false, false> open_create_impl_t; // EDIT added
 #else
    typedef ipcdetail::managed_open_or_create_impl<shared_memory_object, 0, true, false> open_create_impl_t;
 #endif
@@ -987,8 +987,8 @@ inline typename message_queue_t<VoidPointer>::size_type message_queue_t<VoidPoin
 template<class VoidPointer>
 inline bool message_queue_t<VoidPointer>::remove(const char *name)
 {  
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS)
-    return true;  // Paul Dolcet EDIT Comment: line Added
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(BOOST_WINDOWS) // EDIT added
+    return true;  // EDIT added
 #else
     return shared_memory_object::remove(name);
 #endif

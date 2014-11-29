@@ -77,9 +77,6 @@
     <ClInclude Include="volumeoptions\sound_plugin_gui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue.hpp">
-      <Filter>Header Files\boost_1_57\interprocess\ipc</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\sound_windows_ipc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -88,6 +85,9 @@
     </ClInclude>
     <ClInclude Include="volumeoptions\utilities.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue_win.hpp">
+      <Filter>Header Files\boost_1_57\interprocess\ipc</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
