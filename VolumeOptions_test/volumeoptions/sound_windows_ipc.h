@@ -125,7 +125,7 @@ namespace ipc {
         * One string with PID in each "personal" process -> m_personal_managed_shm (TODO)
         * One recurive mutex in -> m_global_managed_shm
 
-        We serialize access to WasapiSharedManager devices info with a shared native mutex 
+        We serialize access to DeviceIPCManager devices info with a shared native mutex 
             (it must support abandonement error)
 
 
@@ -140,9 +140,12 @@ namespace ipc {
             to know wich internal_id is used (think internalid like MAC, and deviceid like IP, exept we lack
             a broadcast protocol so each 'mac' or internalid is a iterable number from 1 to ~50 or 100)
         The protocol for sending messages for other process is simple:
-            higher 32 bits for source remoteid, lower 32bits for message id, and 128 max bytes for buffer data.
+            Higher 32 bits for source remoteid, lower 32bits for message id, and 128 max bytes for buffer data, where
+                we send the deviceid always.
             If a process receives a message, it responds with an 'ACK' always (if its alive of course)
                 and the response message about the received message back to source process.
+            In every received message we check if that deviceid corresponds to 'this' process, using the global mutex
+                to make it atomic.
 
         TODO: i know i should use process IDs as 'mac', but i need a way to broadcast..., maybe in a global shared
             segment with current process IDs running, but if a process crashes it will still be there, someone should go
@@ -198,7 +201,7 @@ typedef boost::interprocess::set < shm_wstring, std::less<shm_wstring>,
     wstring_shm_allocator >                                                         shm_wstring_set;
                                                                                     /////////////////////
 
-class WasapiSharedManager;
+class DeviceIPCManager;
 
 /*
     Instantiates a shared wstring set in managed shared memory indicated by parameter sp_managed_shm
@@ -234,20 +237,28 @@ private:
 
 namespace win
 {
-    class WasapiSharedManager
+
+    class MessageQueueIPCHandler
+    {
+
+
+
+    };
+
+
+    class DeviceIPCManager
     {
     public:
         
         // Make this class a singleton, we really need one per process.
-        static WasapiSharedManager& WasapiSharedManager::get()
+        static DeviceIPCManager& DeviceIPCManager::get()
         {
-            std::call_once(m_once_flag, []{ m_instance.reset(new WasapiSharedManager); });
+            std::call_once(m_once_flag, []{ m_instance.reset(new DeviceIPCManager); });
             return *m_instance.get();
         }
-        virtual ~WasapiSharedManager();
-
-        WasapiSharedManager(const WasapiSharedManager &) = delete; // non copyable
-        WasapiSharedManager& operator= (const WasapiSharedManager&) = delete; // non copyassignable
+        virtual ~DeviceIPCManager();
+        DeviceIPCManager(const DeviceIPCManager &) = delete; // non copyable
+        DeviceIPCManager& operator= (const DeviceIPCManager&) = delete; // non copyassignable
 
         void process_command(int command);
 
@@ -257,24 +268,28 @@ namespace win
 
         void clear_local_insertions();
 
-        std::string get_personal_chosen_manager_name();
-        const std::string m_managed_global_shared_memory_name = "volumeoptions_win_global_msm-"VO_GUID_STRING;
-        const std::string m_interp_recursive_mutex_name = "volumeoptions_win_interp_rmutex-"VO_GUID_STRING;
-        const std::string m_managed_personal_devices_set_name = m_managed_personal_shared_memory_base_name +
-            "-devices_set";
-
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_personal_shared_mem_manager();
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_global_shared_mem_manager();
 
     private:
 
-        WasapiSharedManager() throw(...);
+        DeviceIPCManager() throw(...);
 
-        static std::unique_ptr<WasapiSharedManager> m_instance;
+        // Singleton helpers
+        static std::unique_ptr<DeviceIPCManager> m_instance;
         static std::once_flag m_once_flag;
 
+        // TODO reorganize this class
+
+        enum pid_lookup_table_modes_t { pid_add = 1, pid_remove = 2, pid_search = 3 };
+        template <pid_lookup_table_modes_t mode> // "add" or "remove"
+        bool pid_table(
+            std::shared_ptr<boost::interprocess::managed_windows_shared_memory>& sp_pidtable,
+            const boost::interprocess::ipcdetail::OS_process_id_t process_id);
+
         // the ugly thing described before.
-        bool scan_shared_segments(const std::wstring& deviceid = L"", unsigned long *const found_in_id = nullptr);
+        bool scan_shared_segments(const std::wstring& deviceid = L"",
+            boost::interprocess::ipcdetail::OS_process_id_t *const found_in_pid = nullptr);
 
         // deviceID(managed by) -> process(internal id) 
         std::map<std::wstring, unsigned long> m_remote_device_masters;
@@ -286,38 +301,50 @@ namespace win
         std::unique_ptr<SharedWStringSet> m_personal_up_devices_set;
         boost::interprocess::interprocess_recursive_mutex *m_global_sharedset_rmutex_offset = nullptr;
 
-        const std::string m_managed_personal_shared_memory_base_name = "volumeoptions_win_personal_msm-"VO_GUID_STRING;
-        const std::string m_personal_message_queue_base_name = "volumeoptions_win_message_queue-"VO_GUID_STRING;
-
-        unsigned int create_free_managed_smem(const std::string& base_name,
-            const boost::interprocess::offset_t block_size = 128 * 1024);
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
-            open_create_managed_smem(const std::string& name,
-            const boost::interprocess::offset_t block_size = 128 * 1024);
+            create_free_managed_smem(const std::string& base_name,
+                const boost::interprocess::offset_t block_size, unsigned int& chosen_id);
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
+            open_create_managed_smem(const std::string& name, const boost::interprocess::offset_t block_size);
+        std::shared_ptr<boost::interprocess::windows_shared_memory>
+            open_create_smem(const std::string& name, const boost::interprocess::offset_t block_size);
 
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_managed_shm;
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_shared_pidtable;
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_personal_managed_shm;
         std::shared_ptr<boost::interprocess::message_queue> m_personal_message_queue;
 
-        bool create_message_queue(const unsigned int _id);
+        // Shared segments names
+        const std::string m_global_managed_shared_memory_name;
+        const std::string m_global_pid_table_name;
+        const std::string m_global_recursive_mutex_name;
+        std::string m_personal_managed_sm_name;
+        std::string m_personal_message_queue_name;
+        // Shared segments personal base names
+        const std::string m_personal_managed_sm_base_name;
+        const std::string m_personal_message_queue_base_name;
+        // Objects names
+        std::string m_personal_devices_set_name; // stored inside 'm_personal_managed_sm_name'
+
+
+
+        bool create_message_queue_handler(const std::string& name);
         void mq_listen_handler();
         bool mq_send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
             uint_least32_t message, const int mode = 0, const int priority = 1);
         inline bool mq_send_message(const std::string& mq_destionation_name, const uint_least32_t message,
             const int mode = 0, const int priority = 1);
-        inline bool mq_send_message(const unsigned int internal_id, const uint_least32_t message,
-            const int mode = 0, const int priority = 1);
+        inline bool mq_send_message(const boost::interprocess::ipcdetail::OS_process_id_t pid,
+            const uint_least32_t message, const int mode = 0, const int priority = 1);
         std::thread m_thread_personal_mq;
 
-        std::string m_chosen_personal_managed_sm_name;
-        std::string m_chosen_personal_message_queue_name;
-        unsigned int m_internal_id; // global easy to iterate internal id for this process
+        boost::interprocess::ipcdetail::OS_process_id_t m_process_id;
 
-        const unsigned short m_max_slots; // max number of shared memory segments for processes to take.
+        const unsigned int m_max_slots = 50;
 #if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
         const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
 #else
-        const unsigned int m_max_retry = m_max_slots; // how many retries to reclaim an abandoned windows native mutex
+        const unsigned int m_max_retry = 20; // how many retries to reclaim an abandoned windows native mutex
 #endif
 
         enum message_queue_messages_t
