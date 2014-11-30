@@ -31,8 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SOUND_WINDOWS_IPC_H
 #define SOUND_WINDOWS_IPC_H
 
-#define BOOST_USE_WINDOWS_H
-
 #include <boost/version.hpp>
 #include <boost/detail/workaround.hpp>
 #if BOOST_WORKAROUND(BOOST_VERSION, < 105700)
@@ -60,7 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Note, boost 1_57_0  boost/interprocess/detail/workaround.hpp was eddited to use experimental windows native sync
 //  this was done commenting out the line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION
-//  on future boost versions this may change and no longer be experimental, works very good, even better than default.
+//  on future boost versions this may change and no longer be experimental, works very good, its needed.
 #if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
 #error "Please comment line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION in boost/interprocess/detail/workaround.hpp"
 #endif
@@ -238,13 +236,7 @@ private:
 namespace win
 {
 
-    class MessageQueueIPCHandler
-    {
-
-
-
-    };
-
+    class MessageQueueIPCHandler;
 
     class DeviceIPCManager
     {
@@ -260,7 +252,7 @@ namespace win
         DeviceIPCManager(const DeviceIPCManager &) = delete; // non copyable
         DeviceIPCManager& operator= (const DeviceIPCManager&) = delete; // non copyassignable
 
-        void process_command(int command);
+        void process_command(const int command, const std::wstring& deviceid);
 
         bool find_device(const std::wstring& deviceid); // Deprecated
         int unset_device(const std::wstring& deviceid);
@@ -279,28 +271,31 @@ namespace win
         static std::unique_ptr<DeviceIPCManager> m_instance;
         static std::once_flag m_once_flag;
 
-        // TODO reorganize this class
-
+        // PID table, to lookup for remote processes
         enum pid_lookup_table_modes_t { pid_add = 1, pid_remove = 2, pid_search = 3 };
-        template <pid_lookup_table_modes_t mode> // "add" or "remove"
-        bool pid_table(
-            std::shared_ptr<boost::interprocess::managed_windows_shared_memory>& sp_pidtable,
+        template <pid_lookup_table_modes_t mode>
+        bool pid_table(std::shared_ptr<boost::interprocess::managed_windows_shared_memory>& sp_pidtable,
             const boost::interprocess::ipcdetail::OS_process_id_t process_id);
 
-        // the ugly thing described before.
         bool scan_shared_segments(const std::wstring& deviceid = L"",
             boost::interprocess::ipcdetail::OS_process_id_t *const found_in_pid = nullptr);
 
-        // deviceID(managed by) -> process(internal id) 
-        std::map<std::wstring, unsigned long> m_remote_device_masters;
+
+        // deviceID(managed by) -> process(process id) 
+        std::map<std::wstring, boost::interprocess::ipcdetail::OS_process_id_t> m_remote_device_masters;
 
         // keeps track of local insertions to erase them from sharedmem on destruction. (not used with this design)
         std::set<std::wstring> m_local_insertions;
+
 
         // Our shared objects:
         std::unique_ptr<SharedWStringSet> m_personal_up_devices_set;
         boost::interprocess::interprocess_recursive_mutex *m_global_sharedset_rmutex_offset = nullptr;
 
+        // Message Queue for Volume Options comms
+        std::unique_ptr<MessageQueueIPCHandler> m_message_queue_handler;
+
+        // Instance shared segments helpers:
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
             create_free_managed_smem(const std::string& base_name,
                 const boost::interprocess::offset_t block_size, unsigned int& chosen_id);
@@ -309,25 +304,35 @@ namespace win
         std::shared_ptr<boost::interprocess::windows_shared_memory>
             open_create_smem(const std::string& name, const boost::interprocess::offset_t block_size);
 
+        // Instanced shared segments:
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_managed_shm;
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_shared_pidtable;
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_personal_managed_shm;
-        std::shared_ptr<boost::interprocess::message_queue> m_personal_message_queue;
+        
 
         // Shared segments names
         const std::string m_global_managed_shared_memory_name;
         const std::string m_global_pid_table_name;
         const std::string m_global_recursive_mutex_name;
         std::string m_personal_managed_sm_name;
-        std::string m_personal_message_queue_name;
+
         // Shared segments personal base names
         const std::string m_personal_managed_sm_base_name;
-        const std::string m_personal_message_queue_base_name;
+
         // Objects names
         std::string m_personal_devices_set_name; // stored inside 'm_personal_managed_sm_name'
 
+        // current process pid.
+        boost::interprocess::ipcdetail::OS_process_id_t m_process_id;
 
+#if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+        const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
+#else
+        const unsigned int m_max_retry = 20; // how many retries to reclaim an abandoned windows native mutex
+#endif
 
+        // TODO: move this below:
+#if 0
         bool create_message_queue_handler(const std::string& name);
         void mq_listen_handler();
         bool mq_send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
@@ -337,15 +342,6 @@ namespace win
         inline bool mq_send_message(const boost::interprocess::ipcdetail::OS_process_id_t pid,
             const uint_least32_t message, const int mode = 0, const int priority = 1);
         std::thread m_thread_personal_mq;
-
-        boost::interprocess::ipcdetail::OS_process_id_t m_process_id;
-
-        const unsigned int m_max_slots = 50;
-#if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
-        const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
-#else
-        const unsigned int m_max_retry = 20; // how many retries to reclaim an abandoned windows native mutex
-#endif
 
         enum message_queue_messages_t
         {
@@ -361,6 +357,91 @@ namespace win
 
             mq_abort = 0xFFFFFFFF
         };
+#endif
+    };
+
+
+
+    /*
+        Instances a message queue to handle comunication with other VolumeOptions processes
+    */
+    class MessageQueueIPCHandler
+    {
+    public:
+        MessageQueueIPCHandler(boost::interprocess::ipcdetail::OS_process_id_t process_id);
+        ~MessageQueueIPCHandler();
+        MessageQueueIPCHandler(const MessageQueueIPCHandler &) = delete; // non copyable
+        MessageQueueIPCHandler& operator= (const MessageQueueIPCHandler&) = delete; // non copyassignable
+
+        enum message_queue_messages_t
+        {
+            mq_test = 0u,
+            mq_ping = 0x1,
+
+            mq_wasapi_start = 0x2,
+            mq_wasapi_pause = 0x3,
+
+            mq_add_sender = 0xFFFFF0EE,
+
+            mq_ack = 0xEF0FFFFE,
+
+            mq_abort = 0xFFFFFFFF
+        };
+
+        struct vo_message_t
+        {
+            vo_message_t(boost::interprocess::ipcdetail::OS_process_id_t _source_pid,
+                message_queue_messages_t mc)
+                : source_pid(_source_pid)
+                , message_code(mc)
+            {}
+            vo_message_t(boost::interprocess::ipcdetail::OS_process_id_t _source_pid,
+                message_queue_messages_t mc, std::wstring _device_id)
+                : source_pid(_source_pid)
+                , message_code(mc)
+                , device_id(_device_id)
+            {}
+
+            boost::interprocess::ipcdetail::OS_process_id_t source_pid;
+            message_queue_messages_t message_code;
+            std::wstring device_id;
+        };
+
+        bool send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
+            const vo_message_t& message, const int& mode, const int& priority = 1);
+        inline bool send_message(const std::string& mq_destionation_name, const vo_message_t& message,
+            const int& mode = 0, const int& priority = 1);
+        inline bool send_message(const boost::interprocess::ipcdetail::OS_process_id_t& pid,
+            const vo_message_t& message, const int& mode = 0, const int& priority = 1);
+
+    private:
+
+        bool create_message_queue_handler(const std::string& name);
+        void listen_handler();
+
+        std::shared_ptr<boost::interprocess::message_queue> m_personal_message_queue;
+
+        const std::string m_personal_message_queue_base_name;
+        std::string m_personal_message_queue_name;
+
+        std::thread m_thread_personal_mq;
+
+        struct mq_message_t
+        {
+            mq_message_t() { memset(buffer, 0, 64); }
+            unsigned long source_pid;
+            MessageQueueIPCHandler::message_queue_messages_t message_code;
+            char buffer[64];
+        };
+
+#if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
+        const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
+#else
+        const unsigned int m_max_retry = 20; // how many retries to reclaim an abandoned windows native mutex
+#endif
+
+        // current process pid.
+        boost::interprocess::ipcdetail::OS_process_id_t m_process_id;
     };
 
 

@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../volumeoptions/utilities.h"
 #include "../volumeoptions/sound_windows_ipc.h" // NOTE: include this it before boost/interprocess includes
 
+#include <limits>
+
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
 
@@ -60,7 +62,6 @@ DeviceIPCManager::DeviceIPCManager()
     , m_global_pid_table_name("volumeoptions_win_global_pidtable-"VO_GUID_STRING)
     , m_global_recursive_mutex_name("volumeoptions_win_interp_rmutex-"VO_GUID_STRING)
     , m_personal_managed_sm_base_name("volumeoptions_win_personal_msm-"VO_GUID_STRING)
-    , m_personal_message_queue_base_name("volumeoptions_win_message_queue-"VO_GUID_STRING)
 {
     using namespace boost::interprocess;
 
@@ -68,8 +69,6 @@ DeviceIPCManager::DeviceIPCManager()
     m_process_id = ipcdetail::get_current_process_id();
     m_personal_managed_sm_name = 
         m_personal_managed_sm_base_name + "-" + std::to_string(m_process_id);
-    m_personal_message_queue_name = 
-        m_personal_message_queue_base_name + "-" + std::to_string(m_process_id);
     m_personal_devices_set_name = m_personal_managed_sm_base_name + "-devices_set";
 
     // We use windows managed shared mem in this case
@@ -104,7 +103,7 @@ retry_lock:
         dprintf("IPC ManagedSharedMem: CREATED - %s \n", m_personal_managed_sm_name.c_str());
      
         // Create a personal message queue endpoint, to receive messages (using processID as name suffix).
-        create_message_queue_handler(m_personal_message_queue_name); // throws on error
+        m_message_queue_handler = std::make_unique<MessageQueueIPCHandler>(m_process_id); // throws on error
 
         // --------- Next, instantiate sync primitives: ---------
 
@@ -149,10 +148,7 @@ DeviceIPCManager::~DeviceIPCManager()
     // Unlink our resources inside the shared mem first, before destructing our shared mem.
     m_personal_up_devices_set.reset();
 
-    // Send mq_abort to message queue to terminate thread and join.
-    mq_send_message(m_personal_message_queue, mq_abort, 2, 0);
-    if (m_thread_personal_mq.joinable())
-        m_thread_personal_mq.join();
+    m_message_queue_handler->~MessageQueueIPCHandler();
 }
 
 std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
@@ -416,7 +412,7 @@ std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
             if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
                 goto retry_access;
 
-            if (free_slot == m_max_slots)
+            if (free_slot == std::numeric_limits<uint_least16_t>::max())
                 return 0;
 
             // else throw error.
@@ -428,336 +424,6 @@ std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
 
     return sp_msm;
 }
-
-/*
-    Creates our endpoint for Process comunication, 
-        received messages will be handled in separate thrad
-*/
-bool DeviceIPCManager::create_message_queue_handler(const std::string& name)
-{
-    using namespace boost::interprocess;
-
-    if (name.empty())
-        throw std::exception("create_message_queue_handler name empty");
-
-    try
-    {
-        // name must be unique
-        m_personal_message_queue = std::make_shared<message_queue>
-            (create_only                //only create
-            , name.c_str()              //name
-            , 30                        //max message number
-            , sizeof(uint_least32_t)    //max message size
-            );
-
-        dprintf("IPC MessageQueue: CREATED - %s \n", name.c_str());
-
-        // Create a thread to handle incoming messages.
-        m_thread_personal_mq = std::thread(&DeviceIPCManager::mq_listen_handler, this);
-    }
-    catch (interprocess_exception)
-    {
-        throw;
-    }
-
-    return true;
-}
-
-inline
-bool DeviceIPCManager::mq_send_message(const boost::interprocess::ipcdetail::OS_process_id_t internal_id,
-    const uint_least32_t message, const int mode, const int priority)
-{
-    using namespace boost::interprocess;
-
-    std::string mq_destionation_name(m_personal_message_queue_base_name + "-" + std::to_string(internal_id));
-
-    return mq_send_message(mq_destionation_name, message, mode, priority);
-}
-
-inline
-bool DeviceIPCManager::mq_send_message(const std::string& mq_destionation_name, const uint_least32_t message,
-    const int mode, const int priority)
-{
-    using namespace boost::interprocess;
-
-    std::shared_ptr<message_queue> sp_mq;
-    try
-    {
-        sp_mq.reset(new message_queue(open_only, mq_destionation_name.c_str()));
-        dprintf("IPC MessageQueue: OPENED - %s \n", mq_destionation_name.c_str());
-    }
-    catch (interprocess_exception)
-    {
-        return false;
-    }
-
-    return mq_send_message(sp_mq, message, mode, priority);
-}
-
-bool DeviceIPCManager::mq_send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-    const uint_least32_t message, const int mode, const int priority)
-{
-    using namespace boost::interprocess;
-
-    assert(mq_destination.get());
-    if (!mq_destination.get())
-        return false;
-
-    unsigned int retry = 0, max_send_retry = 2;
-retry_lock:
-    try
-    {
-        switch (mode)
-        {
-            case 0: // non bloking
-                return mq_destination->try_send(&message, sizeof(uint_least32_t), priority);
-                break;
-            case 1: // bloking
-                mq_destination->send(&message, sizeof(uint_least32_t), priority);
-                break;
-            case 2: // timed (fixed)
-            {
-                boost::posix_time::ptime wait_time
-                    = boost::posix_time::microsec_clock::universal_time() // use universal time on windows.
-                    + boost::posix_time::milliseconds(2000);
-                return mq_destination->timed_send(&message, sizeof(uint_least32_t), priority, wait_time);
-            }
-                break;
-            default:
-                return false;
-        }
-
-        return true;
-    }
-    catch (boost::interprocess::interprocess_exception& e)
-    {
-        if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
-            || (e.get_error_code() == error_code_t::timeout_when_waiting_error) // for interprocess conditions
-            || (e.get_error_code() == error_code_t::owner_dead_error)) // for windows native mutexes (boost 1.57)
-        {
-            std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
-                << e.get_native_error() << std::endl;
-
-            // retry lock access if a windows native mutex got abandoned (it can be reclaimed now)
-            if ((e.get_error_code() == error_code_t::owner_dead_error)
-                && (retry++ <= max_send_retry))
-                goto retry_lock;
-
-            if (retry >= max_send_retry)
-                throw;
-        }
-    }
-
-    return false;
-}
-
-void DeviceIPCManager::mq_listen_handler()
-{
-    using namespace boost::interprocess;
-
-    assert(m_personal_message_queue.get());
-
-    dprintf("IPC MessageQueue: Receive thread running...\n");
-
-    uint_least32_t message;
-    unsigned int priority;
-    message_queue::size_type recvd_size;
-    const message_queue::size_type max_size = m_personal_message_queue->get_max_msg_size();
-
-    bool abort = false;
-    while (!abort)
-    {
-        unsigned int retry = 0;
-    retry_lock:
-        try
-        {
-            m_personal_message_queue->receive(&message, sizeof(uint_least32_t), recvd_size, priority);
-        }
-        catch (boost::interprocess::interprocess_exception& e)
-        {
-            if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
-                || (e.get_error_code() == error_code_t::timeout_when_waiting_error) // for interprocess conditions
-                || (e.get_error_code() == error_code_t::owner_dead_error)) // for windows native mutexes (boost 1.57)
-            {
-                std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
-                    << e.get_native_error() << std::endl;
-
-                // retry set access if a windows native mutex got abandoned (it can be reclaimed now)
-                if ((e.get_error_code() == error_code_t::owner_dead_error)
-                    && (retry++ <= m_max_retry))
-                    goto retry_lock;
-
-                if (retry >= m_max_retry)
-                    throw;
-            }
-            else
-                abort = true; // TODO report error.
-
-            continue;
-        }
-
-        dprintf("Received message: %u  size: %d  priority: %d\n", message, recvd_size, priority);
-
-        if (recvd_size != max_size) // malformed
-            continue;
-
-        bool handled = true;
-        switch (message)
-        {
-            case mq_test:
-                printf("IPC: MessageQueue: received test OK.\n");
-                break;
-
-            case mq_ping:
-                break;
-
-            case mq_wasapi_start:
-                break;
-
-            case mq_wasapi_pause:
-                break;
-
-            case mq_add_sender: // TODO
-                break;
-
-            case mq_abort:
-                abort = true;
-                break;
-
-            default:
-                handled = false;
-        }
-
-        if (handled)
-            mq_send_message(m_personal_message_queue, mq_ack, true, 0);
-        
-    }
-}
-
-#if 0
-/*
-    Here comes all the uglyness described on header, at least it works better on windows.
-
-    Search all individual shared memory blocks belonging to other processes and search the set for a matching
-        wstring, this operation is atomic. (it needs to be)
-    Or if deviceid is not supplied scan all the sets of other shared mems and updates our remote managers map.
-
-    Return true if deviceid found in any process.
-    returns found_in_id with id if supplied deviceid was found in that internal reference number.
-
-    NOTE: we take advange of the fact that unreferenced shared memory on windows gets deleted, so we dont have to
-        worry about corrupted objects etc. more info on header.
-        Abanadoned mutexes are now handled internally with a retry count to reclaim it, if it cant be reclaimed it
-            returns false.
-*/
-bool DeviceIPCManager::scan_shared_segments(const std::wstring& deviceid,
-        unsigned long *const found_in_id)
-{
-    using namespace boost::interprocess;
-
-    unsigned int retry = 0;
-retry_lock:
-    vo::high_resolution_clock::time_point now = vo::high_resolution_clock::now(); // TODO remove this line
-    try
-    {
-        // This lock is not intended to protect the shared object (this is read only)
-        //  its intended to make this search operation atomic at higher level.
-        scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
-
-        std::string sm_test_name;
-        // Search for opened blocks of shared memory (ugly yep, but effective)
-        for (unsigned short free_slot = 1; free_slot != m_max_slots; free_slot++)
-        {
-            unsigned int retry_set_access = 0;
-            retrysetaccess:
-            try
-            {
-                std::unique_ptr<SharedWStringSet> upset;
-                std::shared_ptr<managed_windows_shared_memory> spmsm;
-                std::unique_ptr<void_shm_allocator> upconvertible_void_alloc;
-                SharedWStringSet* pset = nullptr;
-
-                // yeah... i know.
-                sm_test_name = m_personal_managed_shared_memory_base_name + "-" + std::to_string(free_slot);
-                if (sm_test_name != m_personal_managed_sm_name)
-                {
-                    // try this name
-                    spmsm = std::make_shared<managed_windows_shared_memory>(open_only, sm_test_name.c_str());
-                    // opens the set if it exists in this managed memory, if not, its created empty.
-                    // it can throw if a mutex is abandoned inside.
-                    upset = std::make_unique<SharedWStringSet>(spmsm, m_personal_devices_set_name);
-                    upconvertible_void_alloc = std::make_unique<void_shm_allocator>(spmsm->get_segment_manager());
-
-                    pset = upset.get();
-                }
-                else // its ours, already opened.
-                {
-                    pset = m_personal_up_devices_set.get();
-                    upconvertible_void_alloc = std::make_unique<void_shm_allocator>
-                        (m_personal_managed_shm->get_segment_manager());
-                }
-
-                // NOTE: We dont need a mutex here, we are already using a global mutex for other purpose.
-
-                if (!deviceid.empty())
-                {   // check if device its there, if not, continue searching the next slot.
-                    if (pset->get_localoffsetptr()->count(shm_wstring(deviceid.c_str(), *upconvertible_void_alloc)))
-                    {
-                        dwprintf(L"Found %s", deviceid.c_str()); dprintf(" in %s\n", sm_test_name.c_str());
-                        if (found_in_id) *found_in_id = free_slot;
-                        return true;
-                    }
-                }
-                else
-                {   // NOTE: not really used in this design, maybe delete this block..
-                    if (sm_test_name != m_personal_managed_sm_name)
-                    { // Scan this remote segment's set to find wich devices it has.
-                        for (auto rd_id : *pset->get_localoffsetptr())
-                        {   // update our local remote device managers map.
-                            m_remote_device_masters[rd_id.c_str()] = free_slot;
-                        }
-                    }
-                }
-            }
-            catch (boost::interprocess::interprocess_exception& e)
-            {
-                if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
-                    || (e.get_error_code() == error_code_t::timeout_when_waiting_error) // for interprocess conditions
-                    || (e.get_error_code() == error_code_t::owner_dead_error)) // for windows native mutexes (boost 1.57)
-                {
-                    std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
-                        << e.get_native_error() << std::endl;
-
-                    // retry set access if a windows native mutex got abandoned (it can be reclaimed now)
-                    if ((e.get_error_code() == error_code_t::owner_dead_error) 
-                        && (retry_set_access++ <= m_max_retry))
-                        goto retrysetaccess;
-                }
-
-                continue;
-            }
-        } // for
-    }
-    catch (interprocess_exception& e)
-    {
-        // the only catch here is our main mutex gets abandoned (error_code_t::owner_dead_error)
-        std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
-            << e.get_native_error() << std::endl;
-
-        if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
-            goto retry_lock;
-
-        // if (e.get_error_code() == error_code_t::owner_dead_error) throw;
-    }
-
-    // took 1000 microsec to scan 50 existing shared mems in my machine and 500 microssec with only 2, so so.
-    // this search will only happen when adding device ids, so its not so bad.
-    vo::high_resolution_clock::time_point later = vo::high_resolution_clock::now(); // TODO remove
-    printf("find took: %llu microsec\n", std::chrono::duration_cast<std::chrono::microseconds>(later - now).count());
-
-    return false;
-}
-#endif
 
 /*
     Search all individual shared memory blocks belonging to other processes and search the set for a matching
@@ -885,9 +551,11 @@ retry_lock:
 }
 
 /*
-    Main method to send message to other processes
+    Main method for communicate with other processes
+
+    Sends command to remote deviceid manager if exists
 */
-void DeviceIPCManager::process_command(int command)
+void DeviceIPCManager::process_command(const int command, const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
 
@@ -897,20 +565,19 @@ retry_lock:
     {
         // *see set_device comment.
         scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
-#if 0
-        unsigned long remote_id;
-        if (scan_shared_segments(deviceid, &remote_id))
-        {
-            m_remote_device_masters[deviceid] = remote_id;
-            // TODO: check if its alive, obtain its message queue name and send a ping message
-            return 2;
-        }
-#endif    
+
         // TODO testing
         switch (command)
         {
             case 1:
-                mq_send_message(1, mq_test);
+
+                if (m_remote_device_masters.count(deviceid))
+                {            
+                    MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_test, deviceid);
+                    dprintf("TEST: sending test message to pid: %u\n", m_remote_device_masters[deviceid]);
+                    m_message_queue_handler->send_message(m_remote_device_masters[deviceid], message);
+                }
+
                 break;
         }
 
@@ -1016,10 +683,10 @@ retry_lock:
         scoped_lock<interprocess_recursive_mutex> lock(*m_global_sharedset_rmutex_offset);
 
         // First check if this device is in any of our processes.
-        unsigned long remote_id;
-        if (scan_shared_segments(deviceid, &remote_id))
+        unsigned long remote_pid;
+        if (scan_shared_segments(deviceid, &remote_pid))
         {
-            m_remote_device_masters[deviceid] = remote_id;
+            m_remote_device_masters[deviceid] = remote_pid;
             // TODO: check if its alive, obtain its message queue name and send a ping message
             return 2;
         }
@@ -1080,6 +747,270 @@ void DeviceIPCManager::clear_local_insertions()
         }
     }
 }
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////                  VolumeOptions Message Queue comm manager                         ///////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+MessageQueueIPCHandler::MessageQueueIPCHandler(boost::interprocess::ipcdetail::OS_process_id_t process_id)
+    : m_personal_message_queue_base_name("volumeoptions_win_message_queue-"VO_GUID_STRING)
+{
+    using namespace boost::interprocess;
+
+    m_process_id = process_id;
+
+    m_personal_message_queue_name =
+        m_personal_message_queue_base_name + "-" + std::to_string(process_id);
+
+    create_message_queue_handler(m_personal_message_queue_name);
+
+}
+MessageQueueIPCHandler::~MessageQueueIPCHandler()
+{
+    // Send mq_abort to message queue to terminate thread and join.
+    vo_message_t abort(m_process_id, mq_abort);
+    if (send_message(m_personal_message_queue, abort, 2, 0))
+    {
+        if (m_thread_personal_mq.joinable())
+            m_thread_personal_mq.join();
+    }
+}
+
+
+/*
+    Creates our endpoint for Process comunication,
+    received messages will be handled in separate thrad
+*/
+bool MessageQueueIPCHandler::create_message_queue_handler(const std::string& name)
+{
+    using namespace boost::interprocess;
+
+    if (name.empty())
+        throw std::exception("create_message_queue_handler name empty");
+
+    try
+    {
+        // name must be unique
+        m_personal_message_queue = std::make_shared<message_queue>
+            (create_only                //only create
+            , name.c_str()              //name
+            , 30                        //max message number
+            , sizeof(mq_message_t)      //max message size
+            );
+
+        dprintf("IPC MessageQueue: CREATED - %s \n", name.c_str());
+
+        // Create a thread to handle incoming messages.
+        m_thread_personal_mq = std::thread(&MessageQueueIPCHandler::listen_handler, this);
+    }
+    catch (interprocess_exception)
+    {
+        throw;
+    }
+
+    return true;
+}
+
+inline
+bool MessageQueueIPCHandler::send_message(const boost::interprocess::ipcdetail::OS_process_id_t& process_id,
+    const vo_message_t& message, const int& mode, const int& priority)
+{
+    using namespace boost::interprocess;
+
+    std::string mq_destionation_name(m_personal_message_queue_base_name + "-" + std::to_string(process_id));
+
+    return send_message(mq_destionation_name, message, mode, priority);
+}
+
+inline
+bool MessageQueueIPCHandler::send_message(const std::string& mq_destionation_name, const vo_message_t& message,
+    const int& mode, const int& priority)
+{
+    using namespace boost::interprocess;
+
+    std::shared_ptr<message_queue> sp_mq;
+    try
+    {
+        sp_mq = std::make_shared<message_queue>(open_only, mq_destionation_name.c_str());
+        dprintf("IPC MessageQueue: Destination OPENED - %s \n", mq_destionation_name.c_str());
+    }
+    catch (interprocess_exception)
+    {
+        return false;
+    }
+
+    return send_message(sp_mq, message, mode, priority);
+}
+
+bool MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
+    const vo_message_t& message, const int& mode, const int& priority)
+{
+    using namespace boost::interprocess;
+
+    assert(mq_destination.get());
+    if (!mq_destination.get())
+        return false;
+
+    // Translate message to mq format
+    mq_message_t mq_packet;
+    mq_packet.message_code = message.message_code;
+    mq_packet.source_pid = message.source_pid;
+    std::string utf8_deviceid = ::vo::wstring_to_utf8(message.device_id);
+    assert(utf8_deviceid.size() < 64);
+    memcpy(mq_packet.buffer, utf8_deviceid.c_str(), utf8_deviceid.size() + 1);
+
+    unsigned int retry = 0, max_send_retry = 2;
+retry_lock:
+    try
+    {
+        switch (mode)
+        {
+            case 0: // non bloking
+                return mq_destination->try_send(&mq_packet, sizeof(mq_packet), priority);
+                break;
+            case 1: // bloking
+                mq_destination->send(&mq_packet, sizeof(mq_packet), priority);
+                break;
+            case 2: // timed (fixed)
+            {
+                boost::posix_time::ptime wait_time
+                    = boost::posix_time::microsec_clock::universal_time() // use universal time on windows.
+                    + boost::posix_time::milliseconds(2000);
+                return mq_destination->timed_send(&mq_packet, sizeof(mq_packet), priority, wait_time);
+            }
+            break;
+            default:
+                return false;
+        }
+
+        return true;
+    }
+    catch (boost::interprocess::interprocess_exception& e)
+    {
+        if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
+            || (e.get_error_code() == error_code_t::timeout_when_waiting_error) // for interprocess conditions
+            || (e.get_error_code() == error_code_t::owner_dead_error)) // for windows native mutexes (boost 1.57)
+        {
+            std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
+                << e.get_native_error() << std::endl;
+
+            // retry lock access if a windows native mutex got abandoned (it can be reclaimed now)
+            if ((e.get_error_code() == error_code_t::owner_dead_error)
+                && (retry++ <= max_send_retry))
+                goto retry_lock;
+
+            if (retry >= max_send_retry)
+                throw;
+        }
+    }
+
+    return false;
+}
+
+void MessageQueueIPCHandler::listen_handler()
+{
+    using namespace boost::interprocess;
+
+    assert(m_personal_message_queue.get());
+
+    dprintf("IPC MessageQueue: Receive thread running...\n");
+
+    mq_message_t message;
+    unsigned int priority;
+    message_queue::size_type recvd_size;
+    const message_queue::size_type max_size = m_personal_message_queue->get_max_msg_size();
+
+    bool abort = false;
+    while (!abort)
+    {
+        unsigned int retry = 0;
+    retry_lock:
+        try
+        {
+            m_personal_message_queue->receive(&message, sizeof(message), recvd_size, priority);
+        }
+        catch (boost::interprocess::interprocess_exception& e)
+        {
+            if ((e.get_error_code() == error_code_t::timeout_when_locking_error) // for interprocess mutexes
+                || (e.get_error_code() == error_code_t::timeout_when_waiting_error) // for interprocess conditions
+                || (e.get_error_code() == error_code_t::owner_dead_error)) // for windows native mutexes (boost 1.57)
+            {
+                std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
+                    << e.get_native_error() << std::endl;
+
+                // retry set access if a windows native mutex got abandoned (it can be reclaimed now)
+                if ((e.get_error_code() == error_code_t::owner_dead_error)
+                    && (retry++ <= m_max_retry))
+                    goto retry_lock;
+
+                if (retry >= m_max_retry)
+                    throw;
+            }
+            else
+                abort = true; // TODO report error.
+
+            continue;
+        }
+
+        dprintf("Received message: source_pid: %u ", message.source_pid);
+        dprintf("message_code: %u ", message.message_code);
+        dprintf("string: %s  (size: %d  priority: %d)\n", message.buffer, recvd_size, priority);
+
+        if (recvd_size != max_size) // malformed
+            continue;
+
+        bool handled = true;
+        switch (message.message_code)
+        {
+        case mq_test:
+            printf("IPC: MessageQueue: received test OK from pid: %u\n", message.source_pid);
+            break;
+
+        case mq_ping:
+            break;
+
+        case mq_ack:
+            printf("IPC: MessageQueue: ACK received from pid: %u\n", message.source_pid);
+            handled = false;
+            break;
+
+        case mq_wasapi_start:
+            break;
+
+        case mq_wasapi_pause:
+            break;
+
+        case mq_add_sender: // TODO
+            break;
+
+        case mq_abort:
+            if (message.source_pid == m_process_id)
+                abort = true;
+            handled = false;
+            break;
+
+        default:
+            handled = false;
+        }
+
+        if ((handled) && (message.source_pid != m_process_id))
+        {
+            // respond ack to sender
+            vo_message_t ackp(m_process_id, mq_ack);
+            send_message(message.source_pid, ackp, true, 0);
+        }
+
+    }
+}
+
+
+
 
 } // end namespace ::ipc::win
 
