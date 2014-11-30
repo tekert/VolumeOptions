@@ -70,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <memory>
 #include <thread>
+#include <mutex>
 
 namespace vo {
 namespace ipc {
@@ -78,6 +79,8 @@ namespace ipc {
     =============================================================================================================
     |  These are some personal headches using boost interprocess and cheking object integrity on porcess abort  |
     =============================================================================================================
+
+    Skip to 'to sum up' for short version.
 
     Ok, this is tricky, we need to protect access to a shared object.
         boost managed mem is already protected for creating objects, finding objects references with a internal mutex.
@@ -122,8 +125,28 @@ namespace ipc {
         * One string with PID in each "personal" process -> m_personal_managed_shm (TODO)
         * One recurive mutex in -> m_global_managed_shm
 
-    We serialize access to WasapiSharedManager find() with a shared native mutex (it must support abandonement error)
+        We serialize access to WasapiSharedManager devices info with a shared native mutex 
+            (it must support abandonement error)
 
+
+    To sum up:
+        Every process stores lookup info about wich deviceid(like services) it provides in a personal (per process)
+            shared set like explained above.
+
+        Think it like, how a network switch ARP protocol find the mac of an ip in lan, but this is shared memory so:
+        We first ask every of our process (like a boradcast) if that process has this 'deviceid', if it has it
+            we store that info in our local table, (this is done atomically scanning all processes sets)
+        Now every time we need to send something to that deviceid y uses the process internal table (a std::map)
+            to know wich internal_id is used (think internalid like MAC, and deviceid like IP, exept we lack
+            a broadcast protocol so each 'mac' or internalid is a iterable number from 1 to ~50 or 100)
+        The protocol for sending messages for other process is simple:
+            higher 32 bits for source remoteid, lower 32bits for message id, and 128 max bytes for buffer data.
+            If a process receives a message, it responds with an 'ACK' always (if its alive of course)
+                and the response message about the received message back to source process.
+
+        TODO: i know i should use process IDs as 'mac', but i need a way to broadcast..., maybe in a global shared
+            segment with current process IDs running, but if a process crashes it will still be there, someone should go
+            and clean it but if the one that is cleaning crashes?, for that reason i need to analize more.
 
     =============================================================================================================
     |                                              IDEAS                                                        |
@@ -211,33 +234,50 @@ private:
 
 namespace win
 {
-    class WasapiSharedManager // TODO: port messaqueue from my test module
+    class WasapiSharedManager
     {
     public:
-        WasapiSharedManager() throw(...);
-        ~WasapiSharedManager();
+        
+        // Make this class a singleton, we really need one per process.
+        static WasapiSharedManager& WasapiSharedManager::get()
+        {
+            std::call_once(m_once_flag, []{ m_instance.reset(new WasapiSharedManager); });
+            return *m_instance.get();
+        }
+        virtual ~WasapiSharedManager();
 
-        bool find_device(const std::wstring& deviceid);
-        bool unset_device(const std::wstring& deviceid);
-        bool set_device(const std::wstring& deviceid);
+        WasapiSharedManager(const WasapiSharedManager &) = delete; // non copyable
+        WasapiSharedManager& operator= (const WasapiSharedManager&) = delete; // non copyassignable
+
+        void process_command(int command);
+
+        bool find_device(const std::wstring& deviceid); // Deprecated
+        int unset_device(const std::wstring& deviceid);
+        int set_device(const std::wstring& deviceid);
 
         void clear_local_insertions();
 
         std::string get_personal_chosen_manager_name();
         const std::string m_managed_global_shared_memory_name = "volumeoptions_win_global_msm-"VO_GUID_STRING;
         const std::string m_interp_recursive_mutex_name = "volumeoptions_win_interp_rmutex-"VO_GUID_STRING;
-        const std::string m_managed_personal_devices_set_name = m_managed_personal_shared_memory_base_name + "-devices_set";
+        const std::string m_managed_personal_devices_set_name = m_managed_personal_shared_memory_base_name +
+            "-devices_set";
 
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_personal_shared_mem_manager();
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_global_shared_mem_manager();
 
     private:
 
+        WasapiSharedManager() throw(...);
+
+        static std::unique_ptr<WasapiSharedManager> m_instance;
+        static std::once_flag m_once_flag;
+
         // the ugly thing described before.
         bool scan_shared_segments(const std::wstring& deviceid = L"", unsigned long *const found_in_id = nullptr);
 
         // deviceID(managed by) -> process(internal id) 
-        std::map<std::wstring, unsigned long> m_remote_device_manager;
+        std::map<std::wstring, unsigned long> m_remote_device_masters;
 
         // keeps track of local insertions to erase them from sharedmem on destruction. (not used with this design)
         std::set<std::wstring> m_local_insertions;
@@ -249,22 +289,29 @@ namespace win
         const std::string m_managed_personal_shared_memory_base_name = "volumeoptions_win_personal_msm-"VO_GUID_STRING;
         const std::string m_personal_message_queue_base_name = "volumeoptions_win_message_queue-"VO_GUID_STRING;
 
-        bool create_free_managed_smem(const std::string& base_name, boost::interprocess::offset_t block_size = 128 * 1024);
-        void open_create_managed_smem(const std::string& name, boost::interprocess::offset_t block_size = 128 * 1024);
+        unsigned int create_free_managed_smem(const std::string& base_name,
+            const boost::interprocess::offset_t block_size = 128 * 1024);
+        std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
+            open_create_managed_smem(const std::string& name,
+            const boost::interprocess::offset_t block_size = 128 * 1024);
 
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_managed_shm;
         std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_personal_managed_shm;
         std::shared_ptr<boost::interprocess::message_queue> m_personal_message_queue;
 
-        bool create_message_queue(unsigned int _id);
-        void mq_handler();
-        bool mq_send_message(const std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-            uint_least32_t message, int priority = 0);
+        bool create_message_queue(const unsigned int _id);
+        void mq_listen_handler();
+        bool mq_send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
+            uint_least32_t message, const int mode = 0, const int priority = 1);
+        inline bool mq_send_message(const std::string& mq_destionation_name, const uint_least32_t message,
+            const int mode = 0, const int priority = 1);
+        inline bool mq_send_message(const unsigned int internal_id, const uint_least32_t message,
+            const int mode = 0, const int priority = 1);
         std::thread m_thread_personal_mq;
 
         std::string m_chosen_personal_managed_sm_name;
         std::string m_chosen_personal_message_queue_name;
-        unsigned int m_internal_id;
+        unsigned int m_internal_id; // global easy to iterate internal id for this process
 
         const unsigned short m_max_slots; // max number of shared memory segments for processes to take.
 #if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
@@ -275,10 +322,15 @@ namespace win
 
         enum message_queue_messages_t
         {
-            mq_test = 0,
+            mq_test = 0u,
+            mq_ping = 0x1,
 
+            mq_wasapi_start = 0x2,
+            mq_wasapi_pause = 0x3,
 
-            mq_ack = 0xEFFFFFFE,
+            mq_add_sender = 0xFFFFF0EE,
+
+            mq_ack = 0xEF0FFFFE,
 
             mq_abort = 0xFFFFFFFF
         };
