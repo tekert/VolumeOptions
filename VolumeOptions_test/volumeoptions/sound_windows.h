@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define _WIN32_WINNT 0x0601 // Minimum Win7 or Windows Server 2008 R2
 #endif
 
-#include <boost/asio.hpp>
+#include <boost/asio.hpp> // include Asio before including windows headers
 #include <boost/asio/steady_timer.hpp>
 
 #include <SDKDDKVer.h>
@@ -243,7 +243,7 @@ private:
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
     std::wstring m_wsDeviceID; // current audio endpoint ID beign monitored.
-    static std::set<std::wstring> m_current_moniting_deviceids;
+    static std::set<std::wstring> m_current_monitored_deviceids;
     static std::mutex m_static_set_access;
 
     // Settings

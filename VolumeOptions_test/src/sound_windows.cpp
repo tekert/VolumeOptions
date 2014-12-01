@@ -65,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../volumeoptions/vo_config.h"
 #include "../volumeoptions/sound_windows.h"
 
+// NOTE: Dont change these unless neccesary.
 #include <initguid.h> // for macro DEFINE_GUID definition http://support2.microsoft.com/kb/130869/en-us
 /* zero init global GUID for events, for later on AudioMonitor constructor */
 DEFINE_GUID(GUID_VO_CONTEXT_EVENT_ZERO, 0x00000000L, 0x0000, 0x0000,
@@ -76,7 +77,8 @@ static const GUID GUID_VO_CONTEXT_EVENT =
 
 namespace vo {
 
-std::set<std::wstring> AudioMonitor::m_current_moniting_deviceids;
+// NOTE TODO: these two will be deleted when my IPC module is complete.
+std::set<std::wstring> AudioMonitor::m_current_monitored_deviceids;
 std::mutex AudioMonitor::m_static_set_access;
 
 /*
@@ -125,11 +127,14 @@ private:
     friend class CSessionNotifications; /* needed for callbacks to access this class using async calls */
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////// Some exported helpers for async calls from other proyects of mine /////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Used to sync calls from other threads usign io_service. Generic templates
 namespace
 {
+    // Helpers to make async calls, sync.
     template <class R>
     void ret_sync_queue(R* ret, bool* done, std::condition_variable* e, std::mutex* m,
         std::function<R(void)> f)
@@ -148,15 +153,18 @@ namespace
         e->notify_all();
     }
 
+
     /* If compiler supports variadic templates use this, its nicer */
     /* perfect forwarding,  rvalue references */
 
+    // Simple ASIO proxy async call.
     template <typename ft, typename... pt>
     void ASYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, ft&& f, pt&&... args)
     {
         io->post(std::bind(std::forward<ft>(f), std::forward<pt>(args)...));
     }
 
+    // Does ASIO async call and waits it to complete.
     template <typename ft, typename... pt>
     void SYNC_CALL(const std::shared_ptr<boost::asio::io_service>& io, std::condition_variable& cond,
         std::mutex& io_mutex, ft&& f, pt&&... args)
@@ -170,6 +178,7 @@ namespace
         l.unlock();
     }
 
+    // Does ASIO async call and waits for return.
     template <typename rt, typename ft, typename... pt>
     rt SYNC_CALL_RET(const std::shared_ptr<boost::asio::io_service>& io, std::condition_variable& cond,
         std::mutex& io_mutex, ft&& f, pt&&... args)
@@ -185,6 +194,7 @@ namespace
         return r;
     }
     
+    // Async callbacks with delays
     template <class rep, class period, typename ft, typename... pt>
     std::unique_ptr<boost::asio::steady_timer>
         ASYNC_CALL_DELAY(std::shared_ptr<boost::asio::io_service>& io,
@@ -266,19 +276,20 @@ namespace
 /*
     Callback class for current session events, -Audio Events Thread
 
-    We use async call here, i decided to use asio because.. well i've been using it for longs years
-    we could implement a thread safe queue for async calls but i already had this tested and done
+    We use async call here, i decided to use asio because.. well i've been using it for years.
+    I could implement a thread safe queue for async calls but i already had this tested and done
 
     MSDN:
     1 The methods in the interface must be nonblocking. The client should never wait on a synchronization
-    object during an event callback.
+        object during an event callback.
     2 The client should never call the IAudioSessionControl::UnregisterAudioSessionNotification method during
-    an event callback.
+        an event callback.
     3 The client should never release the final reference on a WASAPI object during an event callback.
 
     NOTES:
-    *1 To be non blocking and thread safe using our AudioMonitor class the only safe easy way is to use async calls.
-    *2 Easy enough.
+    *1 To be non blocking(for long) and thread safe using our AudioMonitor class the only safe easy way is to
+            use async calls.
+    *2 Easy enough. (we also lock AudioSession ptr at first to be extra safe it wont be unregistered on other thread)
     *3 See AudioSession class destructor for more info about that.
 */
 class CAudioSessionEvents : public IAudioSessionEvents
@@ -424,7 +435,6 @@ public:
     {
         dprintf("OnStateChanged CALLBACK: ");
 
-        //std::shared_ptr<AudioMonitor> spAudioMonitor(m_pAudioMonitor.lock());
         std::shared_ptr<AudioSession> spAudioSession(m_pAudioSession.lock());
         if (!spAudioSession)
         {
@@ -502,14 +512,14 @@ class CAudioSessionEvents_fix : public CAudioSessionEvents
     {}
 
     CAudioSessionEvents_fix(const std::weak_ptr<AudioSession>& pAudioSession,
-        const std::weak_ptr<AudioMonitor>& pAudioMonitor) :
-        CAudioSessionEvents(pAudioSession, pAudioMonitor)
+            const std::weak_ptr<AudioMonitor>& pAudioMonitor) 
+        : CAudioSessionEvents(pAudioSession, pAudioMonitor)
     {}
 
 public:
 
-    CAudioSessionEvents_fix() :
-        CAudioSessionEvents()
+    CAudioSessionEvents_fix() 
+        : CAudioSessionEvents()
     {}
 
 };
@@ -576,7 +586,7 @@ public:
         pNewSessionControl->AddRef();
 
         {
-            // IMPORTANT: Fix, dont know why yet, but the first callback never arrives if we dont do this now.
+            // IMPORTANT: Fix, dont know why, but the first callback never arrives if we dont do this now.
             CAudioSessionEvents_fix* pAudioEvents = new CAudioSessionEvents_fix();
             HRESULT hr = S_OK;
             CHECK_HR(hr = pNewSessionControl->RegisterAudioSessionNotification(pAudioEvents));
@@ -584,7 +594,6 @@ public:
 
             done:
             SAFE_RELEASE(pAudioEvents);
-
             if (FAILED(hr))
             {
                 printf("CSessionNotifications::OnSessionCreated: Error fixing events: hr = %d\n", hr);
@@ -726,6 +735,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
 
 done:
     // Check class status after creation. AudioSession::GetStatus() HRESULT type, if failed discart this session.
+    // NOTE: i dont like exceptions on windows api like code.
     ;
 
 }
@@ -844,7 +854,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     HRESULT hr = S_OK;
 
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-    if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down abort.
+    if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down, abort.
 
     const float &current_vol_reduction = spAudioMonitor->m_settings.ses_global_settings.vol_reduction;
     bool reduce_vol = true;
@@ -908,7 +918,6 @@ void AudioSession::UpdateDefaultVolume(const float new_def)
     Is important to retain a shared_ptr so callbacks have something to call to always,
         so we dont have to manualy hold the instance before deleting..
         making this clearer and safer.
-
 */
 void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 {
@@ -943,7 +952,7 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 
     We saved the default volume on the session so we can restore it here
         m_default_volume always have the user preferred session default volume.
-    If is_volume_at_default flag is true it means the session is already at default level.
+    If 'is_volume_at_default' flag is true it means the session is already at default level.
     If is false or positive it means we have to restore it.
 
     callback_no_delay  -> optional parameter (default false) to indicate if we should
@@ -972,10 +981,8 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
             if (!callback_no_delay && 
                 spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero())
             {
-                std::shared_ptr<AudioSession> spAudioSession;
-                // play it safe, callback_no_delay should be true when called from AudioSession destructor...
-                try { spAudioSession = this->shared_from_this(); }
-                catch (std::bad_weak_ptr&) { return hr; }
+                // play it safe, skip this when called from AudioSession destructor...
+                if (!spAudioSession) return hr;
 #ifdef _DEBUG
                 if (spAudioMonitor->m_pending_restores.find(this) != spAudioMonitor->m_pending_restores.end())
                     dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
@@ -989,7 +996,8 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
                 //		4. A session is removed from container. (AudioMonitor)
                 //          to free AudioSession destructor sooner and delete caducated timer.
                 // NOTE: dont stop timers, delete or replace them to cancel timer.
-                // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async! asio will copy it.
+                // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async!
+                //            asio will copy it.
                 spAudioMonitor->m_pending_restores[this] =
                     ASYNC_CALL_DELAY(spAudioMonitor->m_io, spAudioMonitor->m_settings.ses_global_settings.vol_up_delay,
                     &AudioSession::RestoreHolderCallback, spAudioSession, std::placeholders::_1);
@@ -1059,7 +1067,7 @@ void AudioSession::ChangeVolume(const float v)
     CHECK_HR(m_hrStatus = pSimpleAudioVolume->SetMasterVolume(v, &GUID_VO_CONTEXT_EVENT));
     touch();
 
-    dprintf("AudioSession::ChangeVolume PID[%d] Forcing volume level = %.2f\n", getPID(), v);
+    dprintf("AudioSession::ChangeVolume PID[%d] new volume level = %.2f\n", getPID(), v);
 
 done:
     SAFE_RELEASE(pSimpleAudioVolume);
@@ -1079,8 +1087,9 @@ void AudioSession::set_time_active_since()
     m_last_active_state = std::chrono::steady_clock::time_point::max();
 }
 
-//////////////////////////////////////   Audio Monitor //////////////////////////////////////
-
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////  AudioMonitor   ///////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
 
 AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id)
     : m_current_status(INITERROR)
@@ -1141,15 +1150,15 @@ AudioMonitor::~AudioMonitor()
         m_abort = true;
         m_io->stop();
         // NOTE: define BOOST_ASIO_DISABLE_IOCP on windows if you want stop() to return as soon as it finishes
-        //  executing current handler or if has no pending handlers to run, if not defined on windows it will wait until
-        //  it has no pending handlers to run (empty queue only).
+        //  executing current handler or if has no pending handlers to run, if not defined on windows
+        //  it will wait until it has no pending handlers to run (empty queue only).
 
         if (m_thread_monitor.joinable())
             m_thread_monitor.join(); // wait to finish
     }
     {
         std::lock_guard<std::mutex> l(m_static_set_access);
-        m_current_moniting_deviceids.erase(m_wsDeviceID);
+        m_current_monitored_deviceids.erase(m_wsDeviceID);
     }
 
     // Stop everything and restore to default state
@@ -1179,7 +1188,8 @@ std::shared_ptr<boost::asio::io_service> AudioMonitor::get_io() const
 /*
     Poll for new calls on current thread
 
-    When events are enabled this is the only way to guarantee what msdn says
+    When events are enabled this is the only way to guarantee microsoft wasapi rules
+        the best we can (it works fine like this).
     We do this using async calls from callbacks threads to this one.
     It locks the mutex so no other thread can access the class while polling.
     It also makes it easy to manage all the settings/events using only 1 thread.
@@ -1264,7 +1274,7 @@ std::set<std::wstring> AudioMonitor::GetCurrentMonitoredEndpoints()
 {
     std::lock_guard<std::mutex> l(m_static_set_access);
 
-    return m_current_moniting_deviceids;
+    return m_current_monitored_deviceids;
 }
 
 /*
@@ -1382,16 +1392,17 @@ HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
     {
         std::lock_guard<std::mutex> l(m_static_set_access);
         // if we are already monitoring this endpoint, abort
-        if (m_current_moniting_deviceids.count(device_id))
+        if (m_current_monitored_deviceids.count(device_id))
         {
             // todo heavy: check if other process or instance is using it and continue, dont return, then sync.
+            // TODO UPDATE: working on IPC module.
             std::cerr << "AudioMonitor::InitDeviceID() ERROR: Already monitoring this DeviceID endpoint" << std::endl;
             m_error_status = DEVICEID_IN_USE;
         }
         else
         {
             // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
-            m_current_moniting_deviceids.insert(device_id);
+            m_current_monitored_deviceids.insert(device_id);
 
             m_wsDeviceID = device_id;
             dprintf("AudioMonitor::InitDeviceID()  Using Device Status: OK.\n");
@@ -1402,7 +1413,7 @@ HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
 }
 
 /*
-    Creates the IAudioSessionManager instance on default output device
+    Creates the IAudioSessionManager instance on default output device if device_id is empty
 */
 HRESULT AudioMonitor::GetSessionManager(std::wstring& device_id)
 {
@@ -1478,6 +1489,8 @@ done:
 
     Uses windows7+ enumerator to list all SndVol sessions
         then saves each session found.
+
+    NOTE: this is requiered for NewSessionNotifications to start working from a stop.
 */
 HRESULT AudioMonitor::RefreshSessions()
 {
@@ -1677,14 +1690,14 @@ bool AudioMonitor::isSessionExcluded(const DWORD pid, std::wstring sid)
     Saves a New session in multimap (core method)
 
     Group of session with different SIID (SessionInstanceIdentifier) but with the same SID (SessionIdentifier) are
-        grouped togheter on the same key (SID).
+        grouped togheter on the same multimap key (SID).
     See more notes inside.
     Before adding the session it detects whanever this session is another instance of the same process (same SID)
         and copies the default volume of the last changed session. We need to do this because if we dont, it will
-        take the reduced volume of the other SID session as default..
+        take the changed(non user default) volume of the other SID session as default..
  
-    IAudioSessionControl* pSessionControl  -> pointer to the new session
-    bool unref  -> do we Release() inside this function or not? useful for async calls
+    IAudioSessionControl* pSessionControl  -> pointer to the new session to add.
+    bool unref  -> do we Release() pSessionControl inside this function or not? useful for async calls
 */
 HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const bool unref)
 {
@@ -1726,7 +1739,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
 
         //  If a SID already exists, copy the default volume of the last changed session of the same SID.
         //  As SndVol does: always copies the sound volume of the last changed session, try opening the same music
-        //      player 3 times before the 3rd change volume to the second instance and then to the first, wait >5sec 
+        //      player 3 times, before the 3rd change volume to the second instance and then to the first, wait >5sec 
         //      and open the 3rd, SndVol will take the 1rst one volume. NOTE: Takes 5sec for SndVol to register last 
         //      volume of SID on the registry at least on win7. 
         //  Registry saves only SIDs so they overwrite each other, the last one takes precedence.
@@ -1816,7 +1829,7 @@ void AudioMonitor::DeleteSession(std::shared_ptr<AudioSession> spAudioSession)
             {
                 // NOTE: if we dont erase the timer first, callback will be active until timeout
                 //      and we wont get new session notifications of that session until it deletes itself.
-                //      they each contain a shared_ptr to AudioSession.
+                //      each timer contains a shared_ptr to AudioSession.
                 m_pending_restores.erase(spAudioSession.get());
                 m_saved_sessions.erase(it);
                 break;
@@ -1865,7 +1878,8 @@ long AudioMonitor::Stop()
         ret = StopEvents();
 #endif
 
-        // Deletes all sessions restoring volume
+        // Deletes all sessions 
+        // This will trigger AudioSession destructors, restoring volume.
         DeleteSessions();
 
         dwprintf(L"\n\t ---- AudioMonitor::Stop() STOPPED .... \n\n");

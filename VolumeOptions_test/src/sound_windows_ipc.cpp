@@ -569,17 +569,21 @@ retry_lock:
         // TODO testing
         switch (command)
         {
-            case 1:
-
-                if (m_remote_device_masters.count(deviceid))
-                {            
-                    MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_test, deviceid);
-                    dprintf("TEST: sending test message to pid: %u\n", m_remote_device_masters[deviceid]);
-                    m_message_queue_handler->send_message(m_remote_device_masters[deviceid], message);
-                }
-
-                break;
+        case 1:
+        {
+            if (m_remote_device_masters.count(deviceid))
+            {
+                MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_test,
+                    deviceid);
+                bool r = m_message_queue_handler->send_message(m_remote_device_masters[deviceid], message,
+                    MessageQueueIPCHandler::blocking_mode_t::blocking,
+                    MessageQueueIPCHandler::full_policy_t::trysend);
+                dprintf("TEST: sending test message to pid: %u, sent: %d\n", m_remote_device_masters[deviceid], r);
+                // m_message_queue_handler->wait_for_reply(message_id)
+            }
         }
+        break;
+        } // end switch
 
 
     }
@@ -755,8 +759,14 @@ void DeviceIPCManager::clear_local_insertions()
 /////////                  VolumeOptions Message Queue comm manager                         ///////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
+unsigned long MessageQueueIPCHandler::ms_next_message_id = 1;
+std::mutex MessageQueueIPCHandler::ms_static_messageid_gen;
 
-
+inline unsigned long MessageQueueIPCHandler::get_unused_messageid()
+{
+    std::lock_guard<std::mutex> l(ms_static_messageid_gen);
+    return ms_next_message_id++;
+}
 
 MessageQueueIPCHandler::MessageQueueIPCHandler(boost::interprocess::ipcdetail::OS_process_id_t process_id)
     : m_personal_message_queue_base_name("volumeoptions_win_message_queue-"VO_GUID_STRING)
@@ -775,7 +785,7 @@ MessageQueueIPCHandler::~MessageQueueIPCHandler()
 {
     // Send mq_abort to message queue to terminate thread and join.
     vo_message_t abort(m_process_id, mq_abort);
-    if (send_message(m_personal_message_queue, abort, 2, 0))
+    if (send_message(m_personal_message_queue, abort, async, timedblock, 0))
     {
         if (m_thread_personal_mq.joinable())
             m_thread_personal_mq.join();
@@ -801,7 +811,7 @@ bool MessageQueueIPCHandler::create_message_queue_handler(const std::string& nam
             (create_only                //only create
             , name.c_str()              //name
             , 30                        //max message number
-            , sizeof(mq_message_t)      //max message size
+            , sizeof(mq_packet_t)      //max message size
             );
 
         dprintf("IPC MessageQueue: CREATED - %s \n", name.c_str());
@@ -817,20 +827,21 @@ bool MessageQueueIPCHandler::create_message_queue_handler(const std::string& nam
     return true;
 }
 
+
 inline
 bool MessageQueueIPCHandler::send_message(const boost::interprocess::ipcdetail::OS_process_id_t& process_id,
-    const vo_message_t& message, const int& mode, const int& priority)
+    const vo_message_t& message, const blocking_mode_t& bmode, const full_policy_t& smode, const int& priority)
 {
     using namespace boost::interprocess;
 
     std::string mq_destionation_name(m_personal_message_queue_base_name + "-" + std::to_string(process_id));
 
-    return send_message(mq_destionation_name, message, mode, priority);
+    return send_message(mq_destionation_name, message, bmode, smode, priority);
 }
 
 inline
 bool MessageQueueIPCHandler::send_message(const std::string& mq_destionation_name, const vo_message_t& message,
-    const int& mode, const int& priority)
+    const blocking_mode_t& bmode, const full_policy_t& smode, const int& priority)
 {
     using namespace boost::interprocess;
 
@@ -845,11 +856,11 @@ bool MessageQueueIPCHandler::send_message(const std::string& mq_destionation_nam
         return false;
     }
 
-    return send_message(sp_mq, message, mode, priority);
+    return send_message(sp_mq, message, bmode, smode, priority);
 }
 
 bool MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-    const vo_message_t& message, const int& mode, const int& priority)
+    const vo_message_t& message, const blocking_mode_t& bmode, const full_policy_t& smode, const int& priority)
 {
     using namespace boost::interprocess;
 
@@ -858,38 +869,55 @@ bool MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interprocess::m
         return false;
 
     // Translate message to mq format
-    mq_message_t mq_packet;
+    mq_packet_t mq_packet;
     mq_packet.message_code = message.message_code;
     mq_packet.source_pid = message.source_pid;
-    std::string utf8_deviceid = ::vo::wstring_to_utf8(message.device_id);
+    std::string utf8_deviceid = ::vo::wstring_to_utf8(message.device_id); // TODO check of exception.
     assert(utf8_deviceid.size() < 64);
     memcpy(mq_packet.buffer, utf8_deviceid.c_str(), utf8_deviceid.size() + 1);
+    mq_packet.message_id = get_unused_messageid();
 
-    unsigned int retry = 0, max_send_retry = 2;
+    const unsigned int max_send_retry = 5;
+    unsigned int retry = 0;
 retry_lock:
     try
     {
-        switch (mode)
+        bool r = false;
+        switch (smode)
         {
-            case 0: // non bloking
-                return mq_destination->try_send(&mq_packet, sizeof(mq_packet), priority);
-                break;
-            case 1: // bloking
+            case trysend:
+            {
+                r = mq_destination->try_send(&mq_packet, sizeof(mq_packet), priority);
+            }
+            break;
+
+            case block:
+            {
                 mq_destination->send(&mq_packet, sizeof(mq_packet), priority);
-                break;
-            case 2: // timed (fixed)
+                r = true;
+            }
+            break;
+
+            case timedblock: // (fixed) 1 second
             {
                 boost::posix_time::ptime wait_time
                     = boost::posix_time::microsec_clock::universal_time() // use universal time on windows.
-                    + boost::posix_time::milliseconds(2000);
-                return mq_destination->timed_send(&mq_packet, sizeof(mq_packet), priority, wait_time);
+                    + boost::posix_time::milliseconds(1000);
+                r = mq_destination->timed_send(&mq_packet, sizeof(mq_packet), priority, wait_time);
             }
             break;
+
             default:
                 return false;
         }
 
-        return true;
+        if (r && (bmode == blocking))
+        {
+            std::string response;
+            response = wait_for_reply(mq_packet.message_id); // TODO check, if no response, return code
+        }
+
+        return r;
     }
     catch (boost::interprocess::interprocess_exception& e)
     {
@@ -913,6 +941,13 @@ retry_lock:
     return false;
 }
 
+std::string MessageQueueIPCHandler::wait_for_reply(const unsigned long message_id)
+{
+
+
+
+}
+
 void MessageQueueIPCHandler::listen_handler()
 {
     using namespace boost::interprocess;
@@ -921,7 +956,7 @@ void MessageQueueIPCHandler::listen_handler()
 
     dprintf("IPC MessageQueue: Receive thread running...\n");
 
-    mq_message_t message;
+    mq_packet_t message;
     unsigned int priority;
     message_queue::size_type recvd_size;
     const message_queue::size_type max_size = m_personal_message_queue->get_max_msg_size();
@@ -950,73 +985,84 @@ void MessageQueueIPCHandler::listen_handler()
                     goto retry_lock;
 
                 if (retry >= m_max_retry)
-                    throw;
+                    abort = true;
             }
             else
                 abort = true; // TODO report error.
-
-            continue;
         }
 
         dprintf("Received message: source_pid: %u ", message.source_pid);
         dprintf("message_code: %u ", message.message_code);
-        dprintf("string: %s  (size: %d  priority: %d)\n", message.buffer, recvd_size, priority);
+        dprintf("string: %s  (message_id: %u size: %u  priority: %d)\n",
+            message.buffer, message.message_id, recvd_size, priority);
 
         if (recvd_size != max_size) // malformed
             continue;
 
-        bool handled = true;
+        std::wstring reply;
+
+        bool sendreply = false;
         switch (message.message_code)
         {
+
         case mq_test:
+        {
             printf("IPC: MessageQueue: received test OK from pid: %u\n", message.source_pid);
-            break;
+            reply = L"mq_test OK";
+            sendreply = true;
+        }
+        break;
 
         case mq_ping:
+            reply = L"mq_ping OK";
+            sendreply = true;
             break;
 
         case mq_ack:
-            printf("IPC: MessageQueue: ACK received from pid: %u\n", message.source_pid);
-            handled = false;
-            break;
+        {
+          //  if (!strcmp(message.buffer, "mq_test OK"))
+
+            printf("IPC: MessageQueue: ACK received from pid: %u message: %s\n",
+                message.source_pid, message.buffer ? message.buffer : "");
+        }
+        break;
 
         case mq_wasapi_start:
-            break;
+        {
+            // TODO
+        }
+        break;
 
         case mq_wasapi_pause:
-            break;
+        {
+            // TODO
+        }
+        break;
 
-        case mq_add_sender: // TODO
-            break;
 
         case mq_abort:
             if (message.source_pid == m_process_id)
                 abort = true;
-            handled = false;
-            break;
+            sendreply = false;
+        break;
 
         default:
-            handled = false;
-        }
+            sendreply = false;
 
-        if ((handled) && (message.source_pid != m_process_id))
+        } // end switch
+
+        if (sendreply)
         {
             // respond ack to sender
-            vo_message_t ackp(m_process_id, mq_ack);
-            send_message(message.source_pid, ackp, true, 0);
+            vo_message_t ackp(m_process_id, mq_ack, reply);
+            send_message(message.source_pid, ackp, async, timedblock, 0);
         }
 
     }
 }
 
 
-
-
 } // end namespace ::ipc::win
-
-
-
-
 
 
 
