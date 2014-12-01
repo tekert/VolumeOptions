@@ -63,15 +63,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #error "Please comment line 22: #define BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION in boost/interprocess/detail/workaround.hpp"
 #endif
 
+//#include <boost/thread.hpp>
 
 #include <set>
 #include <string>
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
+#include <unordered_map>
+
+#include "../volumeoptions/sound_windows.h"
 
 namespace vo {
 namespace ipc {
+
+/*
+    
+    NOTE: this module is experimental and IPC is optional.
+    
+*/
 
 /*
     =============================================================================================================
@@ -181,6 +192,7 @@ namespace ipc {
             i should only copy local modified pages, need to see how.
             im working on this, maybe one day ill do it.
         The current solution is better i think.. someday.. maybe someday i will continue thinking.
+            or compile and use MPI, tough.. too heavy for this simple thing.
 
 */  
 
@@ -240,29 +252,68 @@ private:
 
 namespace win {
 
+#if 0
+class DeviceIPCManager2
+{
+public:
+    inline DeviceIPCManager& get()
+    {
+        return DeviceIPCManager::get();
+    }
+
+    ~DeviceIPCManager2()
+    {
+        std::lock_guard<std::mutex> l(m_mutex);
+        if (!--num_instances)
+        {
+            m_instance.reset();
+        }
+    }
+    DeviceIPCManager2()
+    {
+        std::lock_guard<std::mutex> l(m_mutex);
+        if (++num_instances == 1)
+        {
+            m_instance.reset(std::make_unique<DeviceIPCManager>());
+        }
+    }
+
+private:
+    static std::unique_ptr<DeviceIPCManager> m_instance;
+    static std::mutex m_mutex;
+    static unsigned int num_instances;
+};
+#endif
+
 class MessageQueueIPCHandler;
 
 class DeviceIPCManager
 {
 public:
-        
+
     // Make this class a singleton, we really need one per process.
     static DeviceIPCManager& DeviceIPCManager::get()
     {
-        std::call_once(m_once_flag, []{ m_instance.reset(new DeviceIPCManager); });
-        return *m_instance.get();
+        // NOTE: c++11 only, 
+        //  if not using c++11, use std::call_once BUT instance object after calling get(), this was hard to debug
+        static DeviceIPCManager inst;
+        return inst;
     }
+
     virtual ~DeviceIPCManager();
     DeviceIPCManager(const DeviceIPCManager &) = delete; // non copyable
     DeviceIPCManager& operator= (const DeviceIPCManager&) = delete; // non copyassignable
 
-    void process_command(const int command, const std::wstring& deviceid);
+    enum command_t {am_start, am_pause, am_test};
+    int process_command(const command_t command, const std::wstring& deviceid, std::shared_ptr<AudioMonitor> sp);
 
     bool find_device(const std::wstring& deviceid); // Deprecated
     int unset_device(const std::wstring& deviceid);
-    int set_device(const std::wstring& deviceid);
+    int set_device(const std::wstring& deviceid, std::shared_ptr<vo::AudioMonitor> spAudioMonitor);
 
     void clear_local_insertions();
+
+    std::shared_ptr<vo::AudioMonitor> get_audiomonitor_of(const std::wstring& deviceid);
 
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_personal_shared_mem_manager();
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory> get_global_shared_mem_manager();
@@ -270,10 +321,6 @@ public:
 private:
 
     DeviceIPCManager() throw(...);
-
-    // Singleton helpers
-    static std::unique_ptr<DeviceIPCManager> m_instance;
-    static std::once_flag m_once_flag;
 
     // PID table, to lookup for remote processes
     enum pid_lookup_table_modes_t { pid_add = 1, pid_remove = 2, pid_search = 3 };
@@ -284,29 +331,30 @@ private:
     bool scan_shared_segments(const std::wstring& deviceid = L"",
         boost::interprocess::ipcdetail::OS_process_id_t *const found_in_pid = nullptr);
 
-
-    // deviceID(managed by) -> process(process id) 
-    std::map<std::wstring, boost::interprocess::ipcdetail::OS_process_id_t> m_remote_device_masters;
-
-    // keeps track of local insertions to erase them from sharedmem on destruction. (not used with this design)
-    std::set<std::wstring> m_local_insertions;
-
-
-    // Our shared objects:
-    std::unique_ptr<SharedWStringSet> m_personal_up_devices_set;
-    boost::interprocess::interprocess_recursive_mutex *m_global_sharedset_rmutex_offset = nullptr;
-
-    // Message Queue for Volume Options comms
-    std::unique_ptr<MessageQueueIPCHandler> m_message_queue_handler;
-
-    // Instance shared segments helpers:
+    // Shared segment creation helpers:
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
         create_free_managed_smem(const std::string& base_name,
-            const boost::interprocess::offset_t block_size, unsigned int& chosen_id);
+        const boost::interprocess::offset_t block_size, unsigned int& chosen_id);
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
         open_create_managed_smem(const std::string& name, const boost::interprocess::offset_t block_size);
     std::shared_ptr<boost::interprocess::windows_shared_memory>
         open_create_smem(const std::string& name, const boost::interprocess::offset_t block_size);
+
+
+    // deviceID(managed by) -> process(process id)  local lookup cache, so we dont have to do a broadcast.
+    std::map<std::wstring, boost::interprocess::ipcdetail::OS_process_id_t> m_tracking_managers_cache;
+
+    // keeps track of process managed devieids, current process insertions to shared set.
+    std::unordered_map<std::wstring, std::weak_ptr<vo::AudioMonitor>> m_local_claimed_devices;
+
+
+    // Our shared objects:
+    std::unique_ptr<SharedWStringSet> m_personal_shared_set;
+    boost::interprocess::interprocess_recursive_mutex *m_global_rmutex_offset = nullptr;
+
+    // Message Queue for Volume Options comms
+    std::unique_ptr<MessageQueueIPCHandler> m_message_queue_handler;
+
 
     // Instanced shared segments:
     std::shared_ptr<boost::interprocess::managed_windows_shared_memory> m_global_managed_shm;
@@ -338,7 +386,6 @@ private:
 };
 
 
-
 /*
     Instances a message queue to handle comunication with other VolumeOptions processes
 
@@ -362,9 +409,11 @@ public:
         mq_abort = 0xFFFFFFFF
     };
 
-    enum vo_response_data_t // TODO: Move this to manager.
+    struct vo_response_data_t
     {
-        //const std::wstring ok = L"OK";
+        static const std::wstring OK;
+        static const std::wstring FAIL;
+        static const std::wstring TIMEOUT;
     };
 
     struct vo_message_t
@@ -394,30 +443,23 @@ public:
         timedblock
     };
 
-    // This controls if we should wait for ack or not before returning, like sockets.
-    enum blocking_mode_t
-    {
-        async = 0,
-        blocking = 1, // on shared memory, 10 milliseconds for timeout is ok.
-    };
+    unsigned long send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
 
-    bool send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-        const vo_message_t& message, const blocking_mode_t& bmode = async,
-        const full_policy_t& smode = trysend, const int& priority = 1);
+    inline unsigned long send_message(const std::string& mq_destionation_name,
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
 
-    inline bool send_message(const std::string& mq_destionation_name, 
-        const vo_message_t& message, const blocking_mode_t& bmode = async,
-        const full_policy_t& smode = trysend, const int& priority = 1);
+    inline unsigned long send_message(const boost::interprocess::ipcdetail::OS_process_id_t& pid,
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
 
-    inline bool send_message(const boost::interprocess::ipcdetail::OS_process_id_t& pid,
-        const vo_message_t& message, const blocking_mode_t& bmode = async,
-        const full_policy_t& smode = trysend, const int& priority = 1);
+    std::wstring wait_for_reply(const unsigned long message_id);
 
 private:
 
     bool create_message_queue_handler(const std::string& name);
     void listen_handler();
-    std::string wait_for_reply(const unsigned long message_id);
+    struct mq_packet_t;
+    void store_response(mq_packet_t r);
 
     inline unsigned long get_unused_messageid(); // unique per process
 
@@ -426,18 +468,25 @@ private:
     const std::string m_personal_message_queue_base_name;
     std::string m_personal_message_queue_name;
 
+   // boost::thread m_thread_personal_mq;
     std::thread m_thread_personal_mq;
 
+    static const int MQDATASIZE = 64;
     struct mq_packet_t
     {
-        mq_packet_t() { memset(buffer, 0, 64); }
+        mq_packet_t() { memset(buffer, 0, MQDATASIZE); }
         unsigned long source_pid; // process id
         MessageQueueIPCHandler::mq_message_code_t message_code;
-        char buffer[64];
+        char buffer[MQDATASIZE];
         unsigned long message_id; // unique message id for this process
     };
     static unsigned long ms_next_message_id;
-    static std::mutex ms_static_messageid_gen;
+    static std::recursive_mutex ms_static_messageid_gen;
+
+    // messageid -> received message (received replies messages have code mq_ack and messageid)
+    std::unordered_map<unsigned long, mq_packet_t> m_receive_buffer;
+    std::mutex m_receive_buffer_mutex;
+    std::condition_variable m_receive_buffer_cond;
 
 #if defined(BOOST_INTERPROCESS_WINDOWS) && defined(BOOST_INTERPROCESS_FORCE_GENERIC_EMULATION)
     const unsigned int m_max_retry = 0; // how many retries to reclaim an abandoned windows native mutex
