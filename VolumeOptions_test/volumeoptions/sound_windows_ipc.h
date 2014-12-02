@@ -80,7 +80,9 @@ namespace ipc {
 
 /*
     
-    NOTE: this module is experimental and IPC is optional.
+    NOTE: this module is experimental and IPC is optional, the last part: "message protocol" was done in a rush.
+        the shared memory blocks are good (DeviceIPCManager is almost good, MessageQueueIPCHandler is really ugly),
+        this is 'working' but it will need a complete rewrite to be presentable.
     
 */
 
@@ -287,6 +289,11 @@ private:
 
 class MessageQueueIPCHandler;
 
+/*
+    Handles interprocess comunication to sync wich process controls wich audio device ID. (that part is good)
+
+    It also handles communication messages to other volume options processes (working, but im not proud of)
+*/
 class DeviceIPCManager
 {
 public:
@@ -391,6 +398,7 @@ private:
     Instances a message queue to handle comunication with other VolumeOptions processes
 
     NOTE: its intended to create one of these per process, TODO: enforce this.
+        this needs a complete rewrite, but its working and dont have time now.
 */
 class MessageQueueIPCHandler
 {

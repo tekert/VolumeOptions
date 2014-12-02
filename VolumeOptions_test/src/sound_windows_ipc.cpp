@@ -168,8 +168,7 @@ std::shared_ptr<boost::interprocess::managed_windows_shared_memory>
     "pid_add"     return true if no duplicate exists when insertion took place.
     "pid_remove"  return true if the pid was removed, false if pid was not found
     "pid_search"  return true if pid exists, false if not.
-
-    
+ 
 */
 template <DeviceIPCManager::pid_lookup_table_modes_t mode>
 bool DeviceIPCManager::pid_table(
@@ -459,7 +458,7 @@ retry_lock:
 
         std::string sm_test_name;
         // Search all actives processes, this is like an ARP broadcast
-        // NOTE: this is not thread safe, we must stop all activity first with a common mutex.
+        // NOTE: this is not thread safe, we must stop all activity first with a global mutex.
         for (auto b = m_global_shared_pidtable->named_begin(); b != m_global_shared_pidtable->named_end(); b++)
         {
             unsigned int retry_set_access = 0;
@@ -545,7 +544,6 @@ retry_lock:
         // if (e.get_error_code() == error_code_t::owner_dead_error) throw;
     }
 
-    // took 1000 microsec to scan 50 existing shared mems in my machine and 500 microssec with only 2, so so.
     // this search will only happen when adding device ids, so its not so bad.
     vo::high_resolution_clock::time_point later = vo::high_resolution_clock::now(); // TODO remove
     printf("find took: %llu microsec\n", std::chrono::duration_cast<std::chrono::microseconds>(later - now).count());
@@ -563,13 +561,12 @@ retry_lock:
     -1 -> message sent ok, response received as failed.
     1 -> message sent ok, response received as OK.
 
-    NOTE: this is.. very error prone, there are hardly any checks... :(
+    NOTE: this is.. very error prone, there are hardly any checks... needs rewrite :(
 */
 int DeviceIPCManager::process_command(const command_t command, const std::wstring& deviceid,
     std::shared_ptr<AudioMonitor> spAudioMonitor)
 {
     using namespace boost::interprocess;
-
 
 
     unsigned int retry = 0;
@@ -590,7 +587,7 @@ retry_lock:
 
         int send_retry = 0;
         const int max_send_retry = 3;
-    retry_now:
+    retry_send:
         unsigned long mid = 0;
         switch (command)
         {
@@ -630,17 +627,23 @@ retry_lock:
 
         } // end switch
 
+
         // if message was sent
         if (mid)
         {
-            // wait for a reply to that message.
+            // wait for a reply to that message.          
             std::wstring response = m_message_queue_handler->wait_for_reply(mid);
             dwprintf(L"TEST: Response received: %s\n", response.c_str());
 
             // if remote process is down, try to claim this device id
             if (response == MessageQueueIPCHandler::vo_response_data_t::TIMEOUT)
             {
-                m_tracking_managers_cache.erase(deviceid); // cache for that process is invalid, update.
+                // cache for that process is invalid, remove it.
+                m_tracking_managers_cache.erase(deviceid);
+                // Mark that process as unresponsive. delete if from global table, hope this doesnt corrupt.
+                pid_table<pid_lookup_table_modes_t::pid_remove>(m_global_shared_pidtable,
+                    m_tracking_managers_cache[deviceid]);
+
                 int r = set_device(deviceid, spAudioMonitor); // try to claim device id
                 switch (r)
                 {
@@ -650,9 +653,9 @@ retry_lock:
                         return 0;
                     break;
 
-                    case 2:
+                    case 2: // m_tracking_managers_cache was updated with new remote process
                         if (++send_retry > max_send_retry) return 0;
-                        goto retry_now; // cache should be updated now, retry send to new host.
+                        goto retry_send; // cache should be updated now, retry send to new host.
                     break;
                 }
             }
@@ -689,7 +692,7 @@ bool DeviceIPCManager::find_device(const std::wstring& deviceid)
 
     returns 0:  error, couldnt unset deviceid.
     returns -1: we weren't managing or traking this device id, nothing is done.
-    returns 1: unset succesfull, we are no longer managing this id, (broadcasts that to our processes)
+    returns 1: unset succesfull, we are no longer managing this id, (let other processes find out and update)
     returns 2: we are no longer remotelly tracking this device id.
 */
 int DeviceIPCManager::unset_device(const std::wstring& deviceid) // TODO add remove audiomonitor wp too
@@ -740,7 +743,7 @@ retry_lock:
     returns 0 :     error, couldnt set deviceid.
     returns -1 :    device id already claimed to us, nothing is done.
     returns 1 :     device id free and claimed to us (we will broadcast that to our running processes).
-    returns 2 :     deviceid controlled by remote process (we will set to track that remote processes)
+    returns 2 :     deviceid controlled by remote process (cache will now point to that remote processes)
 */
 int DeviceIPCManager::set_device(const std::wstring& deviceid, std::shared_ptr<vo::AudioMonitor> spAudioMonitor)
 {
@@ -803,7 +806,6 @@ retry_lock:
 std::shared_ptr<vo::AudioMonitor> DeviceIPCManager::get_audiomonitor_of(const std::wstring& deviceid)
 {
     using namespace boost::interprocess;
-
 
     std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
 
@@ -903,16 +905,16 @@ MessageQueueIPCHandler::~MessageQueueIPCHandler()
         // There is a bug with in VS2012-2013 std::thread, if main exists first, join will deadlock
         // This happens if this destructor is called from a static instance when main() is exiting.
         // Solutions:
-        //  Use boost::thread (adds 50KB to binary, two more libs)
-        //  Exit MessageQueueIPCHandler::m_thread_personal_mq thread before main returns (uhmm)
-        //  Detach from thread (need to terminate it if not called from static and wait before detach, uhm)
-        //  Dont make statics or singletons, hard to do with this..
+        //  1 Use boost::thread (adds 50KB to binary, two more libs)
+        //  2 Exit MessageQueueIPCHandler::m_thread_personal_mq thread before main returns (uhmm)
+        //  3 Detach from thread (need to terminate it if not called from static and wait before detach, uhm)
+        //  4 Dont make statics or singletons, (hard to do with a process ipc manager)
 
        // if (m_thread_personal_mq.joinable())
         //    m_thread_personal_mq.join();
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    m_thread_personal_mq.detach();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20)); // ugly yep, i need to wait for thread to exit first.
+    m_thread_personal_mq.detach(); // so the destructor will not call terminate causing a exception on process exit.
 
    // m_personal_message_queue.reset();
 }
@@ -989,7 +991,7 @@ unsigned long MessageQueueIPCHandler::send_message(const std::string& mq_destion
 /*
     Returns the messaid used to send the message, or 0 if the message was not sent, buffer full.
 
-    use reply_message_id only when sending acks. TODO: i have to rewrite the senders.
+    use reply_message_id only when sending acks. TODO: i have to rewrite the senders. or use MPI.
 
     throws on error.
 */
@@ -1011,7 +1013,7 @@ unsigned long MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interp
     if (((message.device_id.size() + 1) * sizeof(wchar_t)) > MQDATASIZE) return 0; // data too long, throw
     memcpy(mq_packet.buffer, message.device_id.c_str(), (message.device_id.size() + 1)*sizeof(wchar_t));
 
-    // I caugth this debugging, dont call a static mutex on program termination.
+    // I caugth this debugging, dont call a static mutex on program termination unless you know the init order.
     // Also, if this is a reply(ack), use sender messageid.
     if ((message.message_code != mq_abort) && (reply_message_id == 0))
         mq_packet.message_id = get_unused_messageid();
@@ -1082,7 +1084,7 @@ retry_lock:
 /*
     Wait for a response to a message_id packet sent.
 
-    It will wait 5 milliseconds max for a response (this is shared memory)
+    It will wait short milliseconds for a response (this is shared memory)
 */
 std::wstring MessageQueueIPCHandler::wait_for_reply(const unsigned long message_id)
 {
@@ -1238,9 +1240,9 @@ void MessageQueueIPCHandler::listen_handler()
 
         if (sendreply)
         {
-            // send reply to sender, code:ack
-            vo_message_t ackp(m_process_id, mq_ack, reply);
-            send_message(message.source_pid, ackp, timedblock, 5, message.message_id);
+            // send reply to sender, code:ack, use original message id
+            vo_message_t ackpacket(m_process_id, mq_ack, reply);
+            send_message(message.source_pid, ackpacket, timedblock, 5, message.message_id);
         }
 
     } // end while
