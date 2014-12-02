@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define _WIN32_WINNT 0x0601 // Minimum Win7 or Windows Server 2008 R2
 #endif
 
-#include <boost/asio.hpp>
+#include <boost/asio.hpp> // include Asio before including windows headers
 #include <boost/asio/steady_timer.hpp>
 
 #include <SDKDDKVer.h>
@@ -88,6 +88,7 @@ inline ULONG CHECK_REFS(IUnknown *p)
 #define CHECK_REFS(...)
 #endif
 
+namespace vo {
 
 class AudioMonitor;
 /*
@@ -207,7 +208,9 @@ public:
     long InitEvents();
     long StopEvents();
 #endif
+    void ChangeDeviceID(const std::wstring& device_id);
     enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
+    enum monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR };
     monitor_status_t GetStatus();
     // Get
     std::shared_ptr<boost::asio::io_service> get_io() const;
@@ -215,13 +218,15 @@ public:
 private:
 
     AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
+    void StartIOInit();
+    void FinishIOInit();
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
 
     void poll(); /* AudioMonitor main thread loop */
 
-    HRESULT GetSessionManager();
+    HRESULT GetSessionManager(std::wstring& device_id);
     HRESULT RefreshSessions();
     void DeleteSessions();
 
@@ -232,10 +237,13 @@ private:
     void ApplySettings();
     bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
 
+    void RemoveDeviceID(const std::wstring& device_id);
+    HRESULT InitDeviceID(const std::wstring& device_id);
+
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
     std::wstring m_wsDeviceID; // current audio endpoint ID beign monitored.
-    static std::set<std::wstring> m_current_moniting_deviceids;
+    static std::set<std::wstring> m_current_monitored_deviceids;
     static std::mutex m_static_set_access;
 
     // Settings
@@ -249,6 +257,7 @@ private:
 
     bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
     monitor_status_t m_current_status;
+    monitor_error_t m_error_status;
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
@@ -278,6 +287,7 @@ private:
     mutable std::recursive_mutex m_mutex;
 };
 
+} // end namespace vo
 
 #endif
 

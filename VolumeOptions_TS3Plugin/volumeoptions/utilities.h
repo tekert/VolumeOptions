@@ -28,53 +28,65 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef VO_CONFIG_H
-#define VO_CONFIG_H
-
-#include <boost/config.hpp>
-
-// Unique ID of this software, randomly generated DONT TOUCH IT unless necessary
-#define VO_GUID_STRING "{D2C1BB1F-47D8-48BF-AC69-7E4E7B2DB6BF}"
+#ifndef VO_UTILITIES_H
+#define VO_UTILITIES_H
 
 
-//TODO: do we really need this macro? was originaly for vista support but...
-#define VO_ENABLE_EVENTS
+/*  Utilities	*/
+
+#include <codecvt>
+#include <chrono>
 
 
+///////////////////////////////////////////////////////
 
 
-// TODO: clean this below
+#ifdef _WIN32
+// to fix visual studio bug https://connect.microsoft.com/VisualStudio/feedback/details/719443/
+namespace stdwinfixed {
+    namespace chrono {
 
-#define VO_USE_SYSTEM_ASSERT 0 // 1 = use standard system asserts, 0 = use our asserts
+        struct high_resolution_clock
+        {
+            typedef long long                                               rep;
+            typedef std::nano                                               period;
+            typedef std::chrono::duration<rep, period>                      duration;
+            typedef std::chrono::time_point<high_resolution_clock>          time_point;
+            static const bool is_steady = true;
 
-#ifdef _DEBUG
-#define PRINT_LOG 1
+            static time_point now();
+        };
 
-#if !VO_USE_SYSTEM_ASSERT
-#define VO_WRITE_TO_FILE_ASSERTS 0 // 1 = writes asserts to file and continues normal execution. 0 = prints and aborts
+    } //namespace stdfixed
+} //namespace chrono
 #endif
 
+namespace vo {
+
+#ifdef _WIN32
+    typedef stdwinfixed::chrono::high_resolution_clock  high_resolution_clock;
 #else
-#define PRINT_LOG 0
-
-#define VO_RELEASE_ASSERTS  // forces asserts on release mode
-#ifdef VO_RELEASE_ASSERTS
-#define VO_WRITE_TO_FILE_ASSERTS 1 
-#endif
-
+    typedef std::chrono::high_resolution_clock  high_resolution_clock;
 #endif
 
 
-#ifdef PRINT_LOG
-#if PRINT_LOG
-#define dprintf(...) printf(__VA_ARGS__)
-#define dwprintf(...) wprintf(__VA_ARGS__)
-#else
-#define dprintf(...)
-#define dwprintf(...)
-#endif
-#endif
+// C++11 Standard conversions
 
+// convert UTF-8 string to wstring
+inline std::wstring utf8_to_wstring(const std::string& str)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.from_bytes(str);
+}
+
+// convert wstring to UTF-8 string
+inline std::string wstring_to_utf8(const std::wstring& str)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.to_bytes(str);
+}
+
+} // end namespace vo
 
 
 #endif

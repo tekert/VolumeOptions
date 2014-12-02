@@ -40,11 +40,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "stdint.h"
 
 #ifdef _WIN32
-#include "sounds_windows.h"
+#include "sound_windows.h"
 #endif
 #include "vo_settings.h"
 
-
+namespace vo {
 
 // Client Interface for Team Speak 3
 class VolumeOptions
@@ -52,7 +52,7 @@ class VolumeOptions
 public:
 
     VolumeOptions(const std::string &sconfigPath);
-    VolumeOptions(const vo::volume_options_settings& settings);
+    VolumeOptions(const volume_options_settings& settings);
     VolumeOptions();
     ~VolumeOptions();
 
@@ -128,10 +128,8 @@ private:
     mutable std::recursive_mutex m_mutex;
 };
 
-// C++11 Standard conversions
-inline std::wstring utf8_to_wstring(const std::string& str);
-inline std::string wstring_to_utf8(const std::wstring& str);
 
+} // end namespace vo
 
 
 #endif

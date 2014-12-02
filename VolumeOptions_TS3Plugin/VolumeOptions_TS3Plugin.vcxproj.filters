@@ -56,9 +56,6 @@
     <ClInclude Include="volumeoptions\sound_plugin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\sounds_windows.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\vo_settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -69,6 +66,12 @@
       <Filter>Resource Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\vo_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\sound_windows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\utilities.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

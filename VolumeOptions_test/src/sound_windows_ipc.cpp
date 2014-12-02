@@ -644,14 +644,15 @@ retry_lock:
                 int r = set_device(deviceid, spAudioMonitor); // try to claim device id
                 switch (r)
                 {
-                case -1:
-                case 0:
-                case 1: // if error, already claimed, or claimed, return 0
-                    return 0;
+                    case -1:
+                    case 0:
+                    case 1: // if error, already claimed, or claimed, return 0
+                        return 0;
                     break;
-                case 2:
-                    if (++send_retry > max_send_retry) return 0;
-                    goto retry_now; // cache should be updated now, retry send again to new host.
+
+                    case 2:
+                        if (++send_retry > max_send_retry) return 0;
+                        goto retry_now; // cache should be updated now, retry send to new host.
                     break;
                 }
             }
@@ -661,7 +662,6 @@ retry_lock:
                     return -1;
                 else if (response == MessageQueueIPCHandler::vo_response_data_t::OK)
                     return 1;
-
             }
         }
     }

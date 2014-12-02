@@ -24,7 +24,7 @@
 #include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;
-static std::unique_ptr<VolumeOptions> g_voptions; // our plugin main class
+static std::unique_ptr<vo::VolumeOptions> g_voptions; // our plugin main class
 
 #ifdef _WIN32
 #define _strcpy(dest, destSize, src) strcpy_s(dest, destSize, src)
@@ -129,7 +129,7 @@ int ts3plugin_init() {
 	printf("VO_PLUGIN_INT: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
 	std::string sconfigPath(configPath);
-    g_voptions = std::make_unique<VolumeOptions>(sconfigPath);
+    g_voptions = std::make_unique<vo::VolumeOptions>(sconfigPath);
     if (!g_voptions)
         return 1;
 
@@ -471,7 +471,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 {
 	char* name = NULL;
     char vo_status[INFODATA_BUFSIZE];
-    VolumeOptions::status s;
+    vo::VolumeOptions::status s;
     char* uid = NULL;
     char* unique_serverid = NULL;
 
@@ -490,7 +490,7 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
             // TODO: global is not the same as server.. change this.
             s = g_voptions->get_status();
             snprintf(vo_status, INFODATA_BUFSIZE, "Server [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
+                name, s == vo::VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
 			break;
 
@@ -507,9 +507,9 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 
             s = g_voptions->get_channel_status(unique_serverid, id);
             snprintf(vo_status, INFODATA_BUFSIZE, "Channel [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
+                name, s == vo::VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
-            if (s == VolumeOptions::DISABLED)
+            if (s == vo::VolumeOptions::DISABLED)
             {
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 0);
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 1);
@@ -535,9 +535,9 @@ void ts3plugin_infoData(uint64 serverConnectionHandlerID, uint64 id, enum Plugin
 
             s = g_voptions->get_client_status(uid);
             snprintf(vo_status, INFODATA_BUFSIZE, "Client [u]%s[/u] status: %s[/color]",
-                name, s == VolumeOptions::DISABLED ? color_disabled : color_enabled);
+                name, s == vo::VolumeOptions::DISABLED ? color_disabled : color_enabled);
 
-            if (s == VolumeOptions::DISABLED)
+            if (s == vo::VolumeOptions::DISABLED)
             {
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 0);
                 ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 1);
@@ -1218,13 +1218,13 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			switch(menuItemID) {
 				case MENU_ID_GLOBAL_ON:
 					/* Menu global 1 Turn ON was triggered */
-                    g_voptions->set_status(VolumeOptions::status::ENABLED);
+                    g_voptions->set_status(vo::VolumeOptions::status::ENABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_ON, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_OFF, 1);
 					break;
 				case MENU_ID_GLOBAL_OFF:
 					/* Menu global 2 Turn OFF was triggered */
-                    g_voptions->set_status(VolumeOptions::status::DISABLED);
+                    g_voptions->set_status(vo::VolumeOptions::status::DISABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_OFF, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_GLOBAL_ON, 1);
 					break;
@@ -1252,13 +1252,13 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			switch(menuItemID) {
 				case MENU_ID_CHANNEL_ENABLED:
                     /* Menu channel 1 Include was triggered */
-                    g_voptions->set_channel_status(unique_serverid, selectedItemID, VolumeOptions::status::ENABLED); // TODO: check status of each channel if we can
+                    g_voptions->set_channel_status(unique_serverid, selectedItemID, vo::VolumeOptions::status::ENABLED); // TODO: check status of each channel if we can
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 1);
 					break;
 				case MENU_ID_CHANNEL_IGNORED:
 					/* Menu channel 2 Ignore was triggered */
-                    g_voptions->set_channel_status(unique_serverid, selectedItemID, VolumeOptions::status::DISABLED);
+                    g_voptions->set_channel_status(unique_serverid, selectedItemID, vo::VolumeOptions::status::DISABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_ENABLED, 1);
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CHANNEL_IGNORED, 0);
 					break;
@@ -1281,13 +1281,13 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			switch(menuItemID) {
 				case MENU_ID_CLIENT_ENABLED:
                     /* Menu client 1 Include client was triggered */
-                    g_voptions->set_client_status(uid, VolumeOptions::status::ENABLED); // TODO: check status of each client if we can
+                    g_voptions->set_client_status(uid, vo::VolumeOptions::status::ENABLED); // TODO: check status of each client if we can
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 0);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 1);
 					break;
 				case MENU_ID_CLIENT_IGNORED:
 					/* Menu client 2 Ignore client was triggered */
-                    g_voptions->set_client_status(uid, VolumeOptions::status::DISABLED);
+                    g_voptions->set_client_status(uid, vo::VolumeOptions::status::DISABLED);
                     ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_ENABLED, 1);
                     //ts3Functions.setPluginMenuEnabled(pluginID, MENU_ID_CLIENT_IGNORED, 0);
 					break;
