@@ -346,6 +346,7 @@ private:
 
     // keeps track of process managed devieids, current process insertions to shared set.
     std::unordered_map<std::wstring, std::weak_ptr<vo::AudioMonitor>> m_local_claimed_devices;
+    std::recursive_mutex m_local_claimed_devices_mutex;
 
 
     // Our shared objects:
@@ -444,13 +445,16 @@ public:
     };
 
     unsigned long send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1,
+        const unsigned long reply_message_id = 0);
 
     inline unsigned long send_message(const std::string& mq_destionation_name,
-        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1,
+        const unsigned long reply_message_id = 0);
 
     inline unsigned long send_message(const boost::interprocess::ipcdetail::OS_process_id_t& pid,
-        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1);
+        const vo_message_t& message, const full_policy_t& smode = trysend, const int& priority = 1,
+        const unsigned long reply_message_id = 0);
 
     std::wstring wait_for_reply(const unsigned long message_id);
 
@@ -471,7 +475,7 @@ private:
    // boost::thread m_thread_personal_mq;
     std::thread m_thread_personal_mq;
 
-    static const int MQDATASIZE = 64;
+    static const int MQDATASIZE = 128;
     struct mq_packet_t
     {
         mq_packet_t() { memset(buffer, 0, MQDATASIZE); }

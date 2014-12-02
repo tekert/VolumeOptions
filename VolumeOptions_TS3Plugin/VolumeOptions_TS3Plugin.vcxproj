@@ -127,6 +127,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
+      <Profile>true</Profile>
     </Link>
     <PreBuildEvent>
       <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>
@@ -147,6 +148,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <Profile>true</Profile>
     </Link>
     <PreBuildEvent>
       <Command>"$(SolutionDir)/tools/verbuild.exe" "$(ProjectDir)/volumeoptions/version.h" *.*.*.+ -t0 -xFP -d2014</Command>

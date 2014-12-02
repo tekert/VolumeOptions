@@ -570,6 +570,8 @@ int DeviceIPCManager::process_command(const command_t command, const std::wstrin
 {
     using namespace boost::interprocess;
 
+
+
     unsigned int retry = 0;
 retry_lock:
     try
@@ -577,8 +579,14 @@ retry_lock:
         // *see set_device comment.
         scoped_lock<interprocess_recursive_mutex> lock(*m_global_rmutex_offset);
 
-        if (m_local_claimed_devices.count(deviceid))
-            return 0;
+        {
+            std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
+            if (m_local_claimed_devices.count(deviceid))
+                return 0;
+        }
+
+        if (!m_tracking_managers_cache.count(deviceid))
+            set_device(deviceid, spAudioMonitor);
 
         int send_retry = 0;
         const int max_send_retry = 3;
@@ -594,6 +602,8 @@ retry_lock:
             mid = m_message_queue_handler->send_message(m_tracking_managers_cache[deviceid], message,
                 MessageQueueIPCHandler::full_policy_t::trysend);
         }
+        break;
+
         case am_pause:
         {
             MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_wasapi_pause,
@@ -605,23 +615,15 @@ retry_lock:
 
         case am_test: // test
         {
-            if (m_tracking_managers_cache.count(deviceid))
+            MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_test,
+                deviceid);
+            unsigned long mid = m_message_queue_handler->send_message(m_tracking_managers_cache[deviceid], message,
+                MessageQueueIPCHandler::full_policy_t::trysend);
+            dprintf("\nTEST: sending test message to pid: %u, sent: %u\n", m_tracking_managers_cache[deviceid], mid);
+            if (mid)
             {
-                vo::high_resolution_clock::time_point now = vo::high_resolution_clock::now(); // TODO remove this line
-
-                MessageQueueIPCHandler::vo_message_t message(m_process_id, MessageQueueIPCHandler::mq_test,
-                    deviceid);
-                unsigned long mid = m_message_queue_handler->send_message(m_tracking_managers_cache[deviceid], message,
-                    MessageQueueIPCHandler::full_policy_t::trysend);
-                dprintf("TEST: sending test message to pid: %u, sent: %u\n", m_tracking_managers_cache[deviceid], mid);
-                if (mid)
-                {
-                    std::wstring r = m_message_queue_handler->wait_for_reply(mid);
-                    dwprintf(L"TEST: Response received: %s\n", r.c_str());
-                }
-
-                vo::high_resolution_clock::time_point later = vo::high_resolution_clock::now(); // TODO remove
-                printf("send block took: %llu microsec\n", std::chrono::duration_cast<std::chrono::microseconds>(later - now).count());
+                std::wstring r = m_message_queue_handler->wait_for_reply(mid);
+                dwprintf(L"TEST: Response received: %s\n", r.c_str());
             }
         }
         break;
@@ -633,7 +635,7 @@ retry_lock:
         {
             // wait for a reply to that message.
             std::wstring response = m_message_queue_handler->wait_for_reply(mid);
-            dprintf("TEST: Response received: %s\n", response.c_str());
+            dwprintf(L"TEST: Response received: %s\n", response.c_str());
 
             // if remote process is down, try to claim this device id
             if (response == MessageQueueIPCHandler::vo_response_data_t::TIMEOUT)
@@ -706,6 +708,7 @@ retry_lock:
 
         if (m_personal_shared_set->get_localoffsetptr()->erase(shm_deviceid))
         {
+            std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
             m_local_claimed_devices.erase(deviceid);
             return 1;
         }
@@ -777,6 +780,7 @@ retry_lock:
         auto pair = m_personal_shared_set->get_localoffsetptr()->emplace(deviceid.c_str(), convertible_void_alloc);
         if (pair.second)
         {
+            std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
             m_local_claimed_devices[deviceid] = spAudioMonitor;
             return 1;
         }
@@ -800,29 +804,14 @@ std::shared_ptr<vo::AudioMonitor> DeviceIPCManager::get_audiomonitor_of(const st
 {
     using namespace boost::interprocess;
 
-    unsigned int retry = 0;
-retry_lock:
-    try
-    {
-        // *see set_device comment
-        scoped_lock<interprocess_recursive_mutex> lock(*m_global_rmutex_offset);
-       
-        if (m_local_claimed_devices.count(deviceid))
-        {
-            std::shared_ptr<vo::AudioMonitor> sp = m_local_claimed_devices[deviceid].lock();
-            if (!sp) m_local_claimed_devices.erase(deviceid);
-            return sp;
-        }
 
-    }
-    catch (interprocess_exception& e)
-    {
-        // the only catch here is our main mutex gets abandoned (error_code_t::owner_dead_error)
-        std::cerr << e.what() << "  ecode: " << e.get_error_code() << "  native_code: "
-            << e.get_native_error() << "function" << __FUNCTION__ << std::endl;
+    std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
 
-        if ((e.get_error_code() == error_code_t::owner_dead_error) && (retry++ <= m_max_retry))
-            goto retry_lock;
+    if (m_local_claimed_devices.count(deviceid))
+    {
+        std::shared_ptr<vo::AudioMonitor> sp = m_local_claimed_devices[deviceid].lock();
+        if (!sp) m_local_claimed_devices.erase(deviceid);
+        return sp;
     }
 
     return nullptr;
@@ -841,6 +830,8 @@ void DeviceIPCManager::clear_local_insertions()
         {
             // serialize writters
             scoped_lock<interprocess_recursive_mutex> lock(*m_global_rmutex_offset);
+
+            std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
 
             // Delete from shared set what we locally inserted
             void_shm_allocator convertible_void_alloc(m_personal_managed_shm->get_segment_manager());
@@ -965,24 +956,25 @@ bool MessageQueueIPCHandler::create_message_queue_handler(const std::string& nam
 
 inline
 unsigned long MessageQueueIPCHandler::send_message(const boost::interprocess::ipcdetail::OS_process_id_t& process_id,
-    const vo_message_t& message, const full_policy_t& smode, const int& priority)
+    const vo_message_t& message, const full_policy_t& smode, const int& priority, const unsigned long reply_message_id)
 {
     using namespace boost::interprocess;
 
     std::string mq_destionation_name(m_personal_message_queue_base_name + "-" + std::to_string(process_id));
 
-    return send_message(mq_destionation_name, message, smode, priority);
+    return send_message(mq_destionation_name, message, smode, priority, reply_message_id);
 }
 
 inline
 unsigned long MessageQueueIPCHandler::send_message(const std::string& mq_destionation_name, 
-    const vo_message_t& message, const full_policy_t& smode, const int& priority)
+    const vo_message_t& message, const full_policy_t& smode, const int& priority, const unsigned long reply_message_id)
 {
     using namespace boost::interprocess;
 
     std::shared_ptr<message_queue> sp_mq;
     try
     {
+        // TODO: cache remote queues. see how, expire etc.
         sp_mq = std::make_shared<message_queue>(open_only, mq_destionation_name.c_str());
         dprintf("IPC MessageQueue: Destination OPENED - %s \n", mq_destionation_name.c_str());
     }
@@ -991,16 +983,18 @@ unsigned long MessageQueueIPCHandler::send_message(const std::string& mq_destion
         return false;
     }
 
-    return send_message(sp_mq, message, smode, priority);
+    return send_message(sp_mq, message, smode, priority, reply_message_id);
 }
 
 /*
     Returns the messaid used to send the message, or 0 if the message was not sent, buffer full.
 
+    use reply_message_id only when sending acks. TODO: i have to rewrite the senders.
+
     throws on error.
 */
 unsigned long MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interprocess::message_queue>& mq_destination,
-    const vo_message_t& message, const full_policy_t& smode, const int& priority)
+    const vo_message_t& message, const full_policy_t& smode, const int& priority, const unsigned long reply_message_id)
 {
     using namespace boost::interprocess;
 
@@ -1012,14 +1006,17 @@ unsigned long MessageQueueIPCHandler::send_message(std::shared_ptr<boost::interp
     mq_packet_t mq_packet;
     mq_packet.message_code = message.message_code;
     mq_packet.source_pid = message.source_pid;
-    std::string utf8_deviceid = ::vo::wstring_to_utf8(message.device_id); // TODO check of exception.
-    assert(utf8_deviceid.size() < MQDATASIZE);
-    if (utf8_deviceid.size() >= MQDATASIZE) return 0; // data too long, throw
-    memcpy(mq_packet.buffer, utf8_deviceid.c_str(), utf8_deviceid.size()+1);
+
+    assert(((message.device_id.size() + 1) * sizeof(wchar_t)) <= MQDATASIZE);
+    if (((message.device_id.size() + 1) * sizeof(wchar_t)) > MQDATASIZE) return 0; // data too long, throw
+    memcpy(mq_packet.buffer, message.device_id.c_str(), (message.device_id.size() + 1)*sizeof(wchar_t));
 
     // I caugth this debugging, dont call a static mutex on program termination.
-    if (message.message_code != mq_abort)
+    // Also, if this is a reply(ack), use sender messageid.
+    if ((message.message_code != mq_abort) && (reply_message_id == 0))
         mq_packet.message_id = get_unused_messageid();
+    else
+        mq_packet.message_id = reply_message_id;
 
     const unsigned int max_send_retry = 5;
     unsigned int retry = 0;
@@ -1046,7 +1043,7 @@ retry_lock:
             {
                 boost::posix_time::ptime wait_time
                     = boost::posix_time::microsec_clock::universal_time() // use universal time on windows.
-                    + boost::posix_time::milliseconds(500);
+                    + boost::posix_time::milliseconds(1000);
                 r = mq_destination->timed_send(&mq_packet, sizeof(mq_packet), priority, wait_time);
             }
             break;
@@ -1093,16 +1090,16 @@ std::wstring MessageQueueIPCHandler::wait_for_reply(const unsigned long message_
 
     while (!m_receive_buffer.count(message_id))
     {
-        std::cv_status cs = m_receive_buffer_cond.wait_for(l, std::chrono::milliseconds(5));
-        if (cs == std::cv_status::timeout)
+        if (m_receive_buffer_cond.wait_for(l, std::chrono::milliseconds(30)) == std::cv_status::timeout)
             return vo_response_data_t::TIMEOUT;
+        dprintf("IPC wait_for_reply signaled\n");
     }
 
-    std::string r(m_receive_buffer[message_id].buffer, MQDATASIZE - 1);
+    std::wstring r(reinterpret_cast<wchar_t*>(m_receive_buffer[message_id].buffer));
+
     m_receive_buffer.erase(message_id);
 
-
-    return vo::utf8_to_wstring(r);
+    return r;
 }
 
 void MessageQueueIPCHandler::store_response(MessageQueueIPCHandler::mq_packet_t r)
@@ -1167,7 +1164,7 @@ void MessageQueueIPCHandler::listen_handler()
 
         dprintf("Received message: source_pid: %u ", message.source_pid);
         dprintf("message_code: %u ", message.message_code);
-        dprintf("string: %s  (message_id: %u size: %u  priority: %d)\n",
+        dwprintf(L"string: %s  (message_id: %u size: %u  priority: %d)\n",
             message.buffer, message.message_id, recvd_size, priority);
 
         if (recvd_size != max_size) // malformed
@@ -1198,13 +1195,11 @@ void MessageQueueIPCHandler::listen_handler()
 
             case mq_wasapi_start:
             {
-                // TODO
-                // search for deviceid and respond, mq_start OK, mq_start FAIL
-                std::wstring deviceid = vo::utf8_to_wstring(message.buffer);
+                std::wstring deviceid(reinterpret_cast<wchar_t*>(message.buffer));
                 std::shared_ptr<vo::AudioMonitor> sp;
                 if (sp = DeviceIPCManager::get().get_audiomonitor_of(deviceid))
                 {
-                    sp->Start();
+                    sp->Start(); // TODO do a stack, use other method
                     reply = vo_response_data_t::OK;
                 }
                 else
@@ -1216,12 +1211,11 @@ void MessageQueueIPCHandler::listen_handler()
 
             case mq_wasapi_pause:
             {
-                // TODO
-                std::wstring deviceid = vo::utf8_to_wstring(message.buffer);
+                std::wstring deviceid(reinterpret_cast<wchar_t*>(message.buffer));
                 std::shared_ptr<vo::AudioMonitor> sp;
                 if (sp = DeviceIPCManager::get().get_audiomonitor_of(deviceid))
                 {
-                    sp->Pause();
+                    sp->Pause(); // TODO do a stack, use other method
                     reply = vo_response_data_t::OK;
                 }
                 else
@@ -1246,7 +1240,7 @@ void MessageQueueIPCHandler::listen_handler()
         {
             // send reply to sender, code:ack
             vo_message_t ackp(m_process_id, mq_ack, reply);
-            send_message(message.source_pid, ackp, timedblock, 5);
+            send_message(message.source_pid, ackp, timedblock, 5, message.message_id);
         }
 
     } // end while
@@ -1282,7 +1276,7 @@ SharedWStringSet::SharedWStringSet(std::shared_ptr<boost::interprocess::managed_
     using namespace boost::interprocess;
 
     assert(sp_managed_shm);
-    assert(sp_managed_shm->get_size() >= 128 * 1024);
+    assert(sp_managed_shm->get_size() >= 64 * 1024);
 
     m_device_set_name = set_name;
     try
