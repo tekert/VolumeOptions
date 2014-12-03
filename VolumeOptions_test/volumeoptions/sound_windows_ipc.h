@@ -82,11 +82,39 @@ namespace ipc {
     
     NOTE: this module is experimental and IPC is optional, the last part: "message protocol" was done in a rush.
         the shared memory blocks are good (DeviceIPCManager is almost good, MessageQueueIPCHandler is really ugly),
-        this is 'working' but it will need a complete rewrite to be presentable.
+        this is 'working' but it will need a complete new design and code rewrite to be presentable (is that, i was
+        initially tought to be small code and simple, but it cant be simple and pretty when coding an ipc protocol)
     
 */
 
 /*
+    To sum up:
+
+        Every process stores info about wich deviceid(like services) it provides in a personal (per process)
+            shared set like explained below, this is atomic, like if where a single global set.
+
+        Every process also has a local remote_processes map, like a cache of where to find the processs that manages a
+            particular 'deviceid'
+
+        Think it like, how a network switch ARP protocol find the mac of an ip in lan, but this is shared memory so:
+
+        We have a global lookup table where every running process posts his PID (its simple, we hope it doesnt corrupt)
+            think global lookup table like cables connected to a switch.
+        We first ask every of the process in the global lookup table (like a broadcast) if that process has a
+            requested 'deviceid', if it has it we store that info in our local remote process map cache,
+            (this is done atomically scanning all processes sets)
+        Now every time we need to send something to that 'deviceid' we use the local remote cache (a std::map)
+            to know to wich process_id to send to (think processid like MAC, and 'deviceid' like IP).
+        The protocol for sending messages for other process is simple:
+             32 bits for source processid, 32bits for message_code,  32bits for message id, 
+             and 128 max bytes for buffer data (used to send deviceid or string reponses).
+            If a process receives a message, it responds with code 'ACK' always (if its alive of course)
+                and the response message string if applicable back to source process on the same messageid.
+            In every received message we check if 'deviceid' is managed by 'this' process.
+            if waiting for a reponse to a messageid we sent, if timeouts (10 millisec max), the sender removes that
+                process from the global pid table and updates his local cache with a new broadcast trying to claim
+                that device id.
+
     =============================================================================================================
     |  These are some personal headches using boost interprocess and cheking object integrity on porcess abort  |
     =============================================================================================================
@@ -138,33 +166,6 @@ namespace ipc {
 
         We serialize access to DeviceIPCManager 'devices sets' with a shared native mutex 
             (it must support abandonement error)
-
-
-    To sum up:
-        Every process stores info about wich deviceid(like services) it provides in a personal (per process)
-            shared set like explained above, this is atomic, like if where a single global set.
-
-        Every process also has a local remote_processes map, like a cache of where to find the processs that manages a
-            particular 'deviceid'
-
-        Think it like, how a network switch ARP protocol find the mac of an ip in lan, but this is shared memory so:
-
-        We have a global lookup table where every running process posts his PID (its simple, we hope it doesnt corrupt)
-            think global lookup table like cables connected to a switch.
-        We first ask every of the process in the global lookup table (like a broadcast) if that process has this
-            'deviceid', if it has it we store that info in our local remote process map cache, (this is done atomically
-            scanning all processes sets)
-        Now every time we need to send something to that 'deviceid' y uses the local remote cache (a std::map)
-            to know wich process_id to send to (think processid like MAC, and 'deviceid' like IP).
-        The protocol for sending messages for other process is simple:
-             32 bits for source processid, 32bits for message_code,  32bits for message id, 
-             and 128 max bytes for buffer data (used to send deviceid).
-            If a process receives a message, it responds with an 'ACK' always (if its alive of course)
-                and the response message if applicable back to source process.
-            In every received message we check if 'deviceid' is managed by 'this' process, using a global mutex
-                to make it atomic for all processes.
-            We finally check every response if arrives or not and what the response is, to update our local remote
-                processes cache if necessary (send another broadcast and claim 'deviceid').
 
 
     =============================================================================================================
@@ -391,6 +392,7 @@ private:
     const unsigned int m_max_retry = 20; // how many retries to reclaim an abandoned windows native mutex
 #endif
 
+    friend class MessageQueueIPCHandler;
 };
 
 

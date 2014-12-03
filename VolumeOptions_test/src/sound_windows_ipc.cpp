@@ -913,8 +913,12 @@ MessageQueueIPCHandler::~MessageQueueIPCHandler()
        // if (m_thread_personal_mq.joinable())
         //    m_thread_personal_mq.join();
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20)); // ugly yep, i need to wait for thread to exit first.
-    m_thread_personal_mq.detach(); // so the destructor will not call terminate causing a exception on process exit.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20)); // ugly yep, i need to wait for main to exit first.
+    try  {
+        m_thread_personal_mq.detach(); // so the destructor will not call terminate causing a exception on process exit.
+    }
+    catch (const std::system_error) 
+    {}
 
    // m_personal_message_queue.reset();
 }
@@ -1246,6 +1250,10 @@ void MessageQueueIPCHandler::listen_handler()
         }
 
     } // end while
+
+    // if this thread terminates, remove it from pid table. dah this needs rewrite.
+    DeviceIPCManager::get().pid_table<DeviceIPCManager::pid_lookup_table_modes_t::pid_remove>
+        (DeviceIPCManager::get().m_global_shared_pidtable, m_process_id);
 
     dprintf("IPC: Closing listen handler thread...\n");
 }

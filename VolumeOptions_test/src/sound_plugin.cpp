@@ -664,7 +664,7 @@ int VolumeOptions::apply_status()
         {
             if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
             {
-                printf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
+                dprintf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
                 r = m_paudio_monitor->Pause();
                 //m_paudio_monitor->Stop();
             }
@@ -680,7 +680,7 @@ int VolumeOptions::apply_status()
             {
                 if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
                 {
-                    printf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
+                    dprintf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
                     r = m_paudio_monitor->Start();
                 }
             }
@@ -716,7 +716,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // We mark channelIDs as unique combining its virtual server ID.
-    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID)); // Profiler hot zone 9%
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
     // TODO if user ignores himself well get incorrect count, fix it. revise this.
@@ -770,7 +770,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
         uniqueChannelID_t channelID_origin = uniqueChannelID;
         status channelID_origin_status;
         if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
-        for (auto it_status : m_channels_with_activity)
+        for (auto it_status : m_channels_with_activity) // Profiler hot zone 7%
         {
             channelID_origin_status = it_status.first;
             // low overhead, usualy a client is in as many channels as servers.

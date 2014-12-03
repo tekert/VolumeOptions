@@ -292,24 +292,32 @@ namespace
     *2 Easy enough. (we also lock AudioSession ptr at first to be extra safe it wont be unregistered on other thread)
     *3 See AudioSession class destructor for more info about that.
 */
+#define TEST_NO_SHAREDPTR 1     // I need it so i can create events in AudioSession constructor, testing.
 class CAudioSessionEvents : public IAudioSessionEvents
 {
     LONG _cRef;
+#if !TEST_NO_SHAREDPTR
     std::weak_ptr<AudioSession> m_pAudioSession;
+#else
+    AudioSession* m_pAudioSession = NULL;
+#endif
     std::weak_ptr<AudioMonitor> m_pAudioMonitor;
 
 protected:
 
     ~CAudioSessionEvents()
     {}
-
+    
     CAudioSessionEvents()
         : _cRef(1)
     {}
 
 public:
-
+#if TEST_NO_SHAREDPTR
+    CAudioSessionEvents(AudioSession* pAudioSession,
+#else
     CAudioSessionEvents(const std::weak_ptr<AudioSession>& pAudioSession,
+#endif
         const std::weak_ptr<AudioMonitor>& pAudioMonitor)
         : _cRef(1)
         , m_pAudioSession(pAudioSession)
@@ -361,7 +369,7 @@ public:
         LPCWSTR NewDisplayName,
         LPCGUID EventContext)
     {
-        dprintf("OnDisplayNameChanged\n");
+        dprintf("CALLBACK: OnDisplayNameChanged\n");
         return S_OK;
     }
 
@@ -369,7 +377,7 @@ public:
         LPCWSTR NewIconPath,
         LPCGUID EventContext)
     {
-        dprintf("OnIconPathChanged\n");
+        dprintf("CALLBACK: OnIconPathChanged\n");
         return S_OK;
     }
 
@@ -378,35 +386,55 @@ public:
         BOOL NewMute,
         LPCGUID EventContext)
     {
+        dprintf("CALLBACK: OnSimpleVolumeChanged ");
+
         std::shared_ptr<AudioSession> spAudioSession;
+
         // If we didnt generate this event
         if (!IsEqualGUID(*EventContext, GUID_VO_CONTEXT_EVENT))
         {
+#if !TEST_NO_SHAREDPTR
             spAudioSession = m_pAudioSession.lock();
+#else
+            if (!m_pAudioSession) return S_OK;
+            try { spAudioSession = m_pAudioSession->shared_from_this(); }
+            catch (std::bad_weak_ptr&) {}
+#endif
             if (!spAudioSession)
+            {
+                dprintf("spAudioSession == NULL!\n");
                 return S_OK;
+            }
 
             std::shared_ptr<AudioMonitor> spAudioMonitor(m_pAudioMonitor.lock());
             if (!spAudioMonitor)
                 return S_OK;
 
+            dprintf("External change, updating user default volume... ");
             ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::UpdateDefaultVolume, spAudioSession, NewVolume);
         }
 
 #ifdef _DEBUG
         if (!spAudioSession)
+        {
+#if !TEST_NO_SHAREDPTR
             spAudioSession = m_pAudioSession.lock();
+#else
+            if (!m_pAudioSession) return S_OK;
+            try { spAudioSession = m_pAudioSession->shared_from_this(); }
+            catch (std::bad_weak_ptr&) {}
+#endif
+        }
         DWORD pid = 0;
         if (spAudioSession)
             pid = spAudioSession->getPID();
         if (NewMute)
         {
-            printf("MUTE [%d]\n", pid);
+            dprintf("MUTE [%d]\n", pid);
         }
         else
         {
-            printf("Callback: Volume = %d%% [%d]\n",
-                (UINT32)(100 * NewVolume + 0.5), pid);
+            dprintf("Volume = %d%% [%d]\n", (UINT32)(100 * NewVolume + 0.5), pid);
         }
 #endif
         return S_OK;
@@ -418,7 +446,7 @@ public:
         DWORD ChangedChannel,
         LPCGUID EventContext)
     {
-        dprintf("OnChannelVolumeChanged\n");
+        dprintf("CALLBACK: OnChannelVolumeChanged\n");
         return S_OK;
     }
 
@@ -426,21 +454,29 @@ public:
         LPCGUID NewGroupingParam,
         LPCGUID EventContext)
     {
-        dprintf("OnGroupingParamChanged\n");
+        dprintf("CALLBACK: OnGroupingParamChanged\n");
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE OnStateChanged(
         AudioSessionState NewState)
     {
-        dprintf("OnStateChanged CALLBACK: ");
+        dprintf("CALLBACK OnStateChanged: ");
 
+#if TEST_NO_SHAREDPTR
+        if (!m_pAudioSession) return S_OK;
+        std::shared_ptr<AudioSession> spAudioSession;
+        try { spAudioSession = m_pAudioSession->shared_from_this(); }
+        catch (std::bad_weak_ptr&) {}
+#else
         std::shared_ptr<AudioSession> spAudioSession(m_pAudioSession.lock());
+#endif
         if (!spAudioSession)
         {
-            dprintf("spAudioSession == NULL!! on OnStateChanged()\n");
+            dprintf("spAudioSession == NULL!\n");
             return S_OK;
         }
+
         std::shared_ptr<AudioMonitor> spAudioMonitor(m_pAudioMonitor.lock());
         if (!spAudioMonitor)
             return S_OK;
@@ -450,13 +486,15 @@ public:
         {
         case AudioSessionStateActive:
             pszState = "active";
-            ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::ApplyVolumeSettings, spAudioSession);
+            // The order is important, ApplyVolumeSettings uses active time, TODO maybe enforce this
             ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::set_time_active_since, spAudioSession);
+            ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::ApplyVolumeSettings, spAudioSession);
             break;
         case AudioSessionStateInactive:
             pszState = "inactive";
-            ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::RestoreVolume, spAudioSession);
+            // The order is important
             ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::set_time_inactive_since, spAudioSession);
+            ASYNC_CALL(spAudioMonitor->get_io(), &AudioCallbackProxy::RestoreVolume, spAudioSession);
             break;
         case AudioSessionStateExpired:
             // NOTE: Only pops if we dont retaing a reference to the session, so we wont, 
@@ -474,6 +512,8 @@ public:
     HRESULT STDMETHODCALLTYPE OnSessionDisconnected(
         AudioSessionDisconnectReason DisconnectReason)
     {
+        dprintf("CALLBACK OnSessionDisconnected: ");
+
 #ifdef _DEBUG
         char *pszReason = "?????";
 
@@ -511,7 +551,11 @@ class CAudioSessionEvents_fix : public CAudioSessionEvents
     ~CAudioSessionEvents_fix()
     {}
 
+#if TEST_NO_SHAREDPTR
+    CAudioSessionEvents_fix(AudioSession* pAudioSession,
+#else
     CAudioSessionEvents_fix(const std::weak_ptr<AudioSession>& pAudioSession,
+#endif
             const std::weak_ptr<AudioMonitor>& pAudioMonitor) 
         : CAudioSessionEvents(pAudioSession, pAudioMonitor)
     {}
@@ -628,16 +672,18 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     , m_pAudioEvents(NULL)
     , m_pSimpleAudioVolume(NULL)
     , m_pSessionControl2(NULL)
-    , is_volume_at_default(true)
+    , m_is_volume_at_default(true)
 {
     if (pSessionControl == NULL)
     {
         m_hrStatus = E_POINTER;
-        dprintf("[ERROR] AudioSession::AudioSession pSessionControl == NULL\n");
+        printf("[ERROR] AudioSession::AudioSession pSessionControl == NULL\n");
         return;
     }
 
-    // Fill static data first
+    dprintf("AudioSession::AudioSession default_volume correction=%f\n", default_volume);
+
+    // Fill const data first
     IAudioSessionControl2* pSessionControl2 = NULL;
     CHECK_HR(m_hrStatus = m_pSessionControl->QueryInterface(__uuidof(IAudioSessionControl2),
         (void**)&pSessionControl2));
@@ -658,10 +704,6 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
 
     SAFE_RELEASE(pSessionControl2);
 
-    // Correct volume
-    if (m_default_volume > 1.0f)
-        m_default_volume = 1.0f;
-
     assert(m_pSessionControl);
     // NOTE: retaining a copy to a WASAPI session interface IAudioSessionControl  causes the session to never expire.
     m_pSessionControl->AddRef();
@@ -673,13 +715,22 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     assert(m_pSimpleAudioVolume);
 #endif
 
+#ifdef VO_ENABLE_EVENTS
+    // NOTE: testing init events here.
+    InitEvents();
+#endif
+
+    // Correct volume
+    if (m_default_volume > 1.0f)
+        m_default_volume = 1.0f;
+
     // if user default vol not set (negative) set it.
     float currrent_vol = GetCurrentVolume();
     if (m_default_volume < 0.0f)
         UpdateDefaultVolume(currrent_vol);
 
-    /* Fix for windows, if a new session is detected when the process was just
-        opened, volume change won work. wait for a bit */
+    /* Fix for Sndvol, if a new session is detected when the process was just
+        opened, volume change won work, no way around it. wait for a bit */
     Sleep(20);
 
     // We just created this session handler, we dont know since when it was active/inactive, update from now.
@@ -694,18 +745,20 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     // Apply current monitor volume settings on creation.
     ApplyVolumeSettings();
 #else
-    ApplyVolumeSettings();
     set_time_active_since();
+    ApplyVolumeSettings();
 #endif
 
     // Windows SndVol fix.
     /* if param default_volume >= 0 it means use it to change to the real SID vol default, as explained in
-        AudioSession::ChangeAudio, Sessions with the same SID take their default volume
-        from the last SID changed >5sec ago from the registry, see ChangeAudio for more doc. */
+    AudioSession::ChangeAudio, Sessions with the same SID take their default volume
+    from the last SID changed >5sec ago from the registry, see ChangeAudio for more doc. */
     if (default_volume >= 0.0f)
     {
-        if ((m_default_volume != currrent_vol) && is_volume_at_default)
+        if (m_is_volume_at_default && (m_default_volume != currrent_vol))
         {
+            dprintf("AudioSession::AudioSession Windows SndVol fix (%f != %f) , is_volume_at_default =%d\n",
+                m_default_volume, currrent_vol, m_is_volume_at_default);
             ChangeVolume(m_default_volume);	// fix correct windows volume before aplying settings
         }
     }
@@ -713,7 +766,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
 #ifdef _DEBUG
 #ifndef VO_ENABLE_EVENTS
     AudioSessionState State;
-    m_hrStatus = CHECK_HR(m_hrStatus = pSessionControl->GetState(&State));
+    CHECK_HR(m_hrStatus = pSessionControl->GetState(&State));
 #endif
     wchar_t *pszState = L"?????";
     switch (State)
@@ -732,12 +785,12 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
         pszState);
 #endif
 
-
 done:
-    // Check class status after creation. AudioSession::GetStatus() HRESULT type, if failed discart this session.
-    // NOTE: i dont like exceptions on windows api like code.
-    ;
+    SAFE_RELEASE(pSessionControl2);
 
+    // Check class status after creation. AudioSession::GetStatus() HRESULT type, if failed discart this session.
+    // NOTE: i dont like exceptions on windows api code.
+    ;
 }
 
 AudioSession::~AudioSession()
@@ -768,7 +821,7 @@ void AudioSession::InitEvents()
     if (m_pAudioEvents == NULL)
     {
         // CAudioSessionEvents constructor sets Refs on 1 so remember to release
-        m_pAudioEvents = new CAudioSessionEvents(this->shared_from_this(), m_wpAudioMonitor);
+        m_pAudioEvents = new CAudioSessionEvents(this, m_wpAudioMonitor);
 
         // RegisterAudioSessionNotification calls another AddRef on m_pAudioEvents so Refs = 2 by now
         CHECK_HR(m_hrStatus = m_pSessionControl->RegisterAudioSessionNotification(m_pAudioEvents));
@@ -856,31 +909,43 @@ HRESULT AudioSession::ApplyVolumeSettings()
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
     if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down, abort.
 
-    const float &current_vol_reduction = spAudioMonitor->m_settings.ses_global_settings.vol_reduction;
+    // shortcut reference to monitor globals settings.
+    const session_settings& ses_setting = spAudioMonitor->m_settings.ses_global_settings;
+
+    const float &current_vol_reduction = ses_setting.vol_reduction;
     bool reduce_vol = true;
     // Only change volume if the session is active and configured to do so
-    if (spAudioMonitor->m_settings.ses_global_settings.change_only_active_sessions)
+    if (ses_setting.change_only_active_sessions)
     {
+#if 0
         AudioSessionState State = AudioSessionStateInactive;
-        m_pSessionControl->GetState(&State); // NOTE: profiler marks this line as the only hot zone ~19%.
+        hr = m_pSessionControl->GetState(&State); // NOTE: profiler marks this line as the only hot zone ~15%.
+        if (FAILED(hr))
+            printf("AudioSession::ApplyVolumeSettings() PID[%d] ERROR Session GetState failed hr = d\n", getPID(), hr);
         if (State == AudioSessionStateActive)
             reduce_vol = true;
         else
             reduce_vol = false;
+#else
+        if (m_last_active_state == std::chrono::steady_clock::time_point::max())
+            reduce_vol = true;
+        else
+            reduce_vol = false;
+#endif
     }
 
     // if AudioSession::is_volume_at_default is true, the session is intact, not changed, else not
     // if AudioMonitor::m_auto_change_volume_flag is true, auto volume reduction is activated, else disabled.
-    if ((is_volume_at_default) && (spAudioMonitor->m_auto_change_volume_flag) && reduce_vol)
+    if ((m_is_volume_at_default) && (spAudioMonitor->m_auto_change_volume_flag) && reduce_vol)
     {
         float set_vol;
-        if (spAudioMonitor->m_settings.ses_global_settings.treat_vol_as_percentage)
+        if (ses_setting.treat_vol_as_percentage)
             set_vol = m_default_volume * (1.0f - current_vol_reduction);
         else
             set_vol = current_vol_reduction;
 
         ChangeVolume(set_vol);
-        is_volume_at_default = false; // mark that the session is NOT at default state.
+        m_is_volume_at_default = false; // mark that the session is NOT at default state.
 
         dprintf("AudioSession::ApplyVolumeSettings() PID[%d] Changed Volume to %.2f\n",
             getPID(), set_vol);
@@ -889,7 +954,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
     {
         dprintf("AudioSession::ApplyVolumeSettings() PID[%d] skiped, flag=%d global_vol_reduction = %.2f, "
             "is_volume_at_default = %d, reduce_vol=%d \n", getPID(), spAudioMonitor->m_auto_change_volume_flag,
-            current_vol_reduction, is_volume_at_default, reduce_vol);
+            current_vol_reduction, m_is_volume_at_default, reduce_vol);
     }
 
     return hr;
@@ -929,7 +994,7 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 
     if (e)
     {
-        dprintf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message().c_str());
+        printf("[ERROR] AudioSession::RestoreHolderCallback PID[%d]  Asio: %s\n", getPID(), e.message().c_str());
         return;
     }
 
@@ -963,7 +1028,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
     HRESULT hr = S_OK;
     assert(m_pSessionControl);
 
-    if (!is_volume_at_default)
+    if (!m_is_volume_at_default)
     {
         if (!callback_no_delay)
         {
@@ -1037,7 +1102,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_no_delay)
 
         dprintf("AudioSession::RestoreVolume PID[%d] Restoring Volume of Session to %.2f\n", getPID(), m_default_volume);
 
-        is_volume_at_default = true; // to signal the session is at default state.
+        m_is_volume_at_default = true; // to signal the session is at default state.
     }
     else
     {
@@ -1080,10 +1145,12 @@ void AudioSession::touch()
 
 void AudioSession::set_time_inactive_since()
 {
+    dprintf("AudioSession::set_time_inactive_since PID[%d]  m_last_active_state to now()\n", getPID());
     m_last_active_state = std::chrono::steady_clock::now();
 }
 void AudioSession::set_time_active_since()
 {
+    dprintf("AudioSession::set_time_active_since PID[%d] m_last_active_state to max()\n", getPID());
     m_last_active_state = std::chrono::steady_clock::time_point::max();
 }
 
@@ -1383,7 +1450,7 @@ HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
         if (hr == E_NOTFOUND)
         {
             std::cerr << "ERROR InitDeviceID() The device ID does not identify an audio device"
-                "that is in this system. " << std::endl; // TODO: do boost::error codes and stop copying.
+                "that is in this system. " << std::endl;
             m_error_status = DEVICE_NOT_FOUND;
         }
         std::wcerr << "ERROR InitDeviceID(" << _device_id << ")  HRESULT : " << hr << std::endl;
@@ -1571,7 +1638,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 
     if (e)
     {
-        dprintf("ASIO Timer cancelled: %s\n", e.message().c_str());
+        printf("ASIO ERROR DeleteExpiredSessions Timer: %s\n", e.message().c_str());
     }
 
     timer->expires_from_now(m_delete_expired_interval);
@@ -1602,7 +1669,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 }
 
 /*
-    Applies current settings on all class elements.
+    Applies current parsed saved settings on all class elements.
 */
 void AudioMonitor::ApplySettings()
 {
@@ -1795,7 +1862,7 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
 
             }
             else
-                dwprintf(L"---AudioMonitor::SaveSession PID[%d] ERROR creating session\n", pid);
+                wprintf(L"---AudioMonitor::SaveSession PID[%d] ERROR opening session\n", pid);
         }
     }
     else
@@ -2227,20 +2294,7 @@ float AudioMonitor::GetVolumeReductionLevel()
 
 auto AudioMonitor::GetStatus() -> monitor_status_t
 {
-    monitor_status_t ret;
-
-    std::unique_lock<std::recursive_mutex> l(m_mutex, std::try_to_lock);
-
-    if (!l.owns_lock())
-    {
-        ret = SYNC_CALL_RET<monitor_status_t>(m_io, m_cond, m_io_mutex, &AudioMonitor::GetStatus, this);
-    }
-    else
-    {
-        ret = m_current_status;
-    }
-
-    return ret;
+    return m_current_status; // thread safe, std::atomic
 }
 
 
