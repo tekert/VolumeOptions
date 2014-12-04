@@ -120,12 +120,14 @@ private:
     void InitEvents();
     void StopEvents();
 
+    void state_changed_callback_handler(AudioSessionState newstatus);
+
     float GetCurrentVolume() const;
     HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
     void UpdateDefaultVolume(const float new_def);
 
-    enum resume_t { NORMAL = false, NO_DELAY = true };
-    HRESULT RestoreVolume(resume_t callback_no_delay = NORMAL);
+    enum class resume_t { NORMAL = false, NO_DELAY = true };
+    HRESULT RestoreVolume(resume_t callback_type = resume_t::NORMAL);
     void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
@@ -133,6 +135,8 @@ private:
     void touch(); // sets m_last_modified_on now().
     void set_time_active_since();
     void set_time_inactive_since();
+
+    AudioSessionState m_current_state;
 
     float m_default_volume; // always marks user default volume of this SID group session
     bool m_is_volume_at_default;  // if true, session volume is at user default volume
@@ -203,8 +207,8 @@ public:
     long Refresh(); // DEBUG Gets all current sessions in SndVol
 #endif
 
-    enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
-    enum monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR };
+    enum class monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
+    enum class monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR }; // TODO boost errors
     monitor_status_t GetStatus();
     
     std::shared_ptr<boost::asio::io_service> get_io() const;

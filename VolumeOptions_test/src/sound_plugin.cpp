@@ -527,7 +527,7 @@ inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(cons
     const channelID_t& nonunique_channelID) const
 {
     // combine unique serverID with nonunique_channelid as a string to make a uniqueChannelID (somewhat)
-    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID));
+    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID)); // Profile got zone. TODO fix
 }
 
 /*
