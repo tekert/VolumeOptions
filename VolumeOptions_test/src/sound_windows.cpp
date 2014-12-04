@@ -731,20 +731,13 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     opened, volume change won work, no way around it. wait for a bit */
     Sleep(20);
 
-
-    // TODO make this below a method
-
-#ifdef VO_ENABLE_EVENTS
-    // NOTE: testing init events here.
-    InitEvents();
-#endif
-
-    ApplyVolumeSettings();
-
     // Windows SndVol fix.
-    /* if param default_volume >= 0 it means use it to change to the real SID vol default, as explained in
-    AudioSession::ChangeAudio, Sessions with the same SID take their default volume
-    from the last SID changed >5sec ago from the registry, see ChangeAudio for more doc. */
+    /* 
+    'default_volume' has the volume of another recently changed same SID volume, negative if not. 
+        as explained in AudioSession::ChangeAudio, Sessions with the same SID take their default volume
+        from the last SID changed >5sec ago from the registry, 
+        *see AudioSession::ApplyVolumeSettings and AudioMonitor::SaveSession for more doc.
+    */
     if (default_volume >= 0.0f)
     {
         if (m_is_volume_at_default && (m_default_volume != currrent_vol))
@@ -1837,9 +1830,11 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
 #ifdef VO_ENABLE_EVENTS
                 pAudioSession->InitEvents();
 #endif
+                // Update new session's volume to sync with current settings
+                pAudioSession->ApplyVolumeSettings();
+
                 // Save session
                 m_saved_sessions.insert(t_session_pair(ws_sid, pAudioSession));
-
             }
             else
                 wprintf(L"---AudioMonitor::SaveSession PID[%d] ERROR opening session\n", pid);
