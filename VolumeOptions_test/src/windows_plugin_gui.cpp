@@ -7,7 +7,7 @@
 #include <minmax.h> // for max
 #include <CommCtrl.h>
 #include <tchar.h>
-#include "../windows_resources/gui_resource.h"
+#include "../resources/gui_resource.h"
 
 #include <string>
 

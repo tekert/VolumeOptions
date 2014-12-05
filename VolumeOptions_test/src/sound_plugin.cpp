@@ -215,6 +215,8 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
 /*
     It will update the file if some options are missing.
 
+    Parsed settings will be saved.
+
     returns 0 if file not found.
 */
 int VolumeOptions::parse_config(const std::string& configFile)

@@ -91,15 +91,18 @@
     <ClInclude Include="volumeoptions\windows_plugin_gui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="windows_resources\gui_resource.h">
+    <ClInclude Include="resources\gui_resource.h">
       <Filter>Resource Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\version.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\VO_readme_TODOS.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="windows_resources\gui_resource.rc">
+    <ResourceCompile Include="resources\gui_resource.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
