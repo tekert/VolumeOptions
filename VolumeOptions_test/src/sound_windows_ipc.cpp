@@ -805,8 +805,6 @@ retry_lock:
 
 std::shared_ptr<vo::AudioMonitor> DeviceIPCManager::get_audiomonitor_of(const std::wstring& deviceid)
 {
-    using namespace boost::interprocess;
-
     std::lock_guard<std::recursive_mutex> lock_local(m_local_claimed_devices_mutex);
 
     if (m_local_claimed_devices.count(deviceid))
@@ -1178,22 +1176,19 @@ void MessageQueueIPCHandler::listen_handler()
 
         std::wstring reply;
 
-        bool sendreply = false;
         switch (message.message_code)
         {
             case mq_test:
             {
                 reply = L"mq_test OK";
-                sendreply = true;
             }
             break;
 
             case mq_ping:
                 reply = L"mq_ping OK";
-                sendreply = true;
                 break;
 
-            case mq_ack:
+            case mq_ack: // a response to a message sent.
             {
                 store_response(message);
             }
@@ -1210,8 +1205,6 @@ void MessageQueueIPCHandler::listen_handler()
                 }
                 else
                     reply = vo_response_data_t::FAIL;
-
-                sendreply = true;
             }
             break;
 
@@ -1226,23 +1219,20 @@ void MessageQueueIPCHandler::listen_handler()
                 }
                 else
                     reply = vo_response_data_t::FAIL;
-
-                sendreply = true;
             }
             break;
 
             case mq_abort:
                 if (message.source_pid == m_process_id)
                     abort = true;
-                sendreply = false;
             break;
 
             default:
-                sendreply = false;
+                ;
 
         } // end switch
 
-        if (sendreply)
+        if (!reply.empty())
         {
             // send reply to sender, code:ack, use original message id
             vo_message_t ackpacket(m_process_id, mq_ack, reply);

@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SOUND_WINDOWS_IPC_H
 #define SOUND_WINDOWS_IPC_H
 
+#ifdef _WIN32
+
 #include <boost/version.hpp>
 #include <boost/detail/workaround.hpp>
 #if BOOST_WORKAROUND(BOOST_VERSION, < 105700)
@@ -446,7 +448,7 @@ public:
         std::wstring device_id;
     };
 
-    // This controls the policy when the buffer is full to send.
+    // This controls the policy used when the buffer is full to send.
     enum full_policy_t
     {
         trysend,
@@ -516,5 +518,8 @@ private:
 } // end namespace win
 } // end namespace ipc
 } // end namespace vo
+
+
+#endif // _WIN32
 
 #endif

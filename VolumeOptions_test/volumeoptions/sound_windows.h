@@ -215,7 +215,7 @@ public:
 
 private:
 
-    AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
+    AudioMonitor(const std::wstring& device_id = L"");
     void StartIOInit();
     void FinishIOInit();
 

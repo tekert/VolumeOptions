@@ -159,6 +159,7 @@
     <ClCompile Include="src\plugin.cpp" />
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
+    <ClCompile Include="src\utilities.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resources\version_res.h" />

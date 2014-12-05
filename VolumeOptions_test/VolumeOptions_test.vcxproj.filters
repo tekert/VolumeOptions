@@ -9,10 +9,6 @@
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
     </Filter>
-    <Filter Include="Resource Files">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
-    </Filter>
     <Filter Include="Header Files\boost_1_57">
       <UniqueIdentifier>{dcb85650-07fd-4855-8432-08bd4f7d57b1}</UniqueIdentifier>
     </Filter>
@@ -21,6 +17,9 @@
     </Filter>
     <Filter Include="Header Files\boost_1_57\interprocess\ipc">
       <UniqueIdentifier>{98d7dac0-c598-4bda-bfcb-df30f74dc4ff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{a81c6450-dc9e-41f1-bd19-f2f12cd894ba}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -39,9 +38,6 @@
     <ClCompile Include="src\logger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\sound_plugin_gui.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\debug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -49,6 +45,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\utilities.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\windows_plugin_gui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -74,9 +73,6 @@
     <ClInclude Include="volumeoptions\async_queue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\sound_plugin_gui.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\sound_windows_ipc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -89,8 +85,22 @@
     <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue_win.hpp">
       <Filter>Header Files\boost_1_57\interprocess\ipc</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\windows_plugin_gui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="windows_resources\gui_resource.h">
+      <Filter>Resource Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\VO_readme_TODOS.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="windows_resources\gui_resource.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

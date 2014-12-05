@@ -1131,11 +1131,10 @@ void AudioSession::set_time_active_since()
     /////////////////////////////////////  AudioMonitor   ///////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////////////////
 
-AudioMonitor::AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id)
+AudioMonitor::AudioMonitor(const std::wstring& device_id)
     : m_current_status(monitor_status_t::INITERROR)
     , m_error_status(monitor_error_t::OK)
     , m_auto_change_volume_flag(false)
-    , m_settings(settings)
     , m_pSessionEvents(NULL)
     , m_pSessionManager2(NULL)
     , m_abort(false)
@@ -1176,8 +1175,6 @@ void AudioMonitor::StartIOInit()
 void AudioMonitor::FinishIOInit()
 {
     m_current_status = AudioMonitor::monitor_status_t::STOPPED;
-
-    SetSettings(m_settings);
 
     dprintf("\t--AudioMonitor init complete--\n");
 }
@@ -1655,6 +1652,7 @@ void AudioMonitor::ApplySettings()
         if (excluded)
         {
             dwprintf(L"\nRemoving PID[%d] due to new config...\n", it->second->getPID());
+            m_pending_restores.erase(it->second.get());
             it = m_saved_sessions.erase(it);
         }
         else
@@ -1826,7 +1824,6 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
 
             if (!FAILED(pAudioSession->GetStatus()))
             {
-
 #ifdef VO_ENABLE_EVENTS
                 pAudioSession->InitEvents();
 #endif
@@ -2231,9 +2228,12 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
                 m_settings.ses_global_settings.vol_reduction = 1.0f;
         }
 
+        if (m_settings.ses_global_settings.vol_up_delay.count() < 0)
+            m_settings.ses_global_settings.vol_up_delay = std::chrono::milliseconds::zero();
+
         // TODO: complete here when adding options, if compiler with different align is used, comment this line.
 #ifdef _DEBUG
-        static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
+       // static_assert(sizeof(vo::monitor_settings) == 144, "Update AudioMonitor::SetSettings!"); // a reminder, read todo.
 #endif
 
 
@@ -2243,6 +2243,8 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 
         // return applied settings
         settings = m_settings;
+
+        dprintf("AudioMonitor::SetSettings new settings parsed and applied.\n");
     }
 
 }

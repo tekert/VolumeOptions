@@ -128,10 +128,31 @@ int ts3plugin_init() {
 
 	printf("VO_PLUGIN_INT: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
+#if 1
 	std::string sconfigPath(configPath);
     g_voptions = std::make_unique<vo::VolumeOptions>(sconfigPath);
     if (!g_voptions)
         return 1;
+#else
+    std::string sconfigPath(configPath);
+#ifdef _WIN32
+    std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
+#else
+    std::string configFile(sconfigPath + "/volumeoptions_plugin.ini");
+#endif
+    g_voptions = std::make_unique<vo::VolumeOptions>();
+    if (!g_voptions)
+        return 1;
+
+    //  it will create and/or update the file if some options are missing.
+    int status = g_voptions->set_settings_from_file(configFile, true); // true = create file if it doesnt exists
+    if (status == 0)
+    {
+        printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
+        // parsing error, report ts3 log
+        ;
+    }
+#endif
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable

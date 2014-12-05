@@ -133,7 +133,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\debug.cpp" />
-    <ClCompile Include="src\sound_plugin_gui.cpp" />
+    <ClCompile Include="src\windows_plugin_gui.cpp" />
     <ClCompile Include="src\logger.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -146,6 +146,7 @@
     <ClCompile Include="src\utilities.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="resource.h" />
     <ClInclude Include="volumeoptions\async_queue.h" />
     <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue_win.hpp" />
     <ClInclude Include="volumeoptions\debug.h" />
@@ -155,15 +156,19 @@
     </ClInclude>
     <ClInclude Include="volumeoptions\sound_windows.h" />
     <ClInclude Include="volumeoptions\sound_plugin.h" />
-    <ClInclude Include="volumeoptions\sound_plugin_gui.h" />
+    <ClInclude Include="volumeoptions\windows_plugin_gui.h" />
     <ClInclude Include="volumeoptions\sound_windows_ipc.h" />
     <ClInclude Include="volumeoptions\test_sound.h" />
     <ClInclude Include="volumeoptions\utilities.h" />
     <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
+    <ClInclude Include="windows_resources\gui_resource.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\VO_readme_TODOS.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="windows_resources\gui_resource.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

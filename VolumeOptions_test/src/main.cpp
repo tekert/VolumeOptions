@@ -16,7 +16,8 @@ int main2(int argc, char* argv[])
     settings.monitor_settings.ses_global_settings.vol_reduction = 0.4f;
 
 	// Example interface for ts3 talk software,
-    VolumeOptions* vo = new VolumeOptions("."); // will load config file
+    VolumeOptions* vo = new VolumeOptions();
+    vo->set_settings_from_file(".\\volumeoptions_plugin.ini"); // will load config file
     //VolumeOptions* vo = new VolumeOptions(settings); // will load supplied settings directly
     // settings is updated with the actual settings applied on creation.
 
