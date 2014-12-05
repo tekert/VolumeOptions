@@ -276,22 +276,17 @@ int VolumeOptions::parse_config(const std::string& configFile)
     // bool: Dont know why but... yep..  1 enable, 0 disable
     mon_settings.exclude_own_process = ini_put_or_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    std::string pid_list;
-    std::string process_list;
+    std::string included_pid_list, excluded_pid_list;
+    std::string included_process_list, excluded_process_list;
 
     // bool: Cant use both filters.
     mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    if (mon_settings.use_included_filter)
-    {
-        pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", "");
-        process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", "");
-    }
-    else
-    {
-        pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
-        process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", "");
-    }
+    included_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", "");
+    included_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", "");
+
+    excluded_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
+    excluded_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", "");
             
     // Update ini file if some values were missing.
     try
@@ -308,18 +303,14 @@ int VolumeOptions::parse_config(const std::string& configFile)
     // clear to overwrite current process values
     mon_settings.included_process.clear();
     mon_settings.excluded_process.clear();
-    if (mon_settings.use_included_filter)
-        parse_process_list(process_list, mon_settings.included_process);
-    else
-        parse_process_list(process_list, mon_settings.excluded_process);
+    parse_process_list(included_process_list, mon_settings.included_process);
+    parse_process_list(excluded_process_list, mon_settings.excluded_process);
 
     // clear to overwrite current pid values
     mon_settings.included_pids.clear();
     mon_settings.excluded_pids.clear();
-    if (mon_settings.use_included_filter)
-        parse_pid_list(pid_list, mon_settings.included_pids);
-    else
-        parse_pid_list(pid_list, mon_settings.excluded_pids);
+    parse_pid_list(included_pid_list, mon_settings.included_pids);
+    parse_pid_list(included_process_list, mon_settings.excluded_pids);
 
 
 #ifdef _DEBUG

@@ -133,8 +133,7 @@ private:
     void ChangeVolume(const float v);
 
     void touch(); // sets m_last_modified_on now().
-    void set_time_active_since();
-    void set_time_inactive_since();
+    void set_state(AudioSessionState state);
 
     AudioSessionState m_current_state;
 

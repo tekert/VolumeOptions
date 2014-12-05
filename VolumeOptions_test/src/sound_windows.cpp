@@ -108,13 +108,9 @@ private:
     {
         pas->UpdateDefaultVolume(new_def);
     }
-    static void set_time_inactive_since(std::shared_ptr<AudioSession> pas)
+    static void set_state(std::shared_ptr<AudioSession> pas, AudioSessionState state)
     {
-        pas->set_time_inactive_since();
-    }
-    static void set_time_active_since(std::shared_ptr<AudioSession> pas)
-    {
-        pas->set_time_active_since();
+        pas->set_state(state);
     }
 
     /* Classes with access */
@@ -719,12 +715,9 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
 #ifdef VO_ENABLE_EVENTS
     AudioSessionState State = AudioSessionStateInactive;
     CHECK_HR(m_hrStatus = m_pSessionControl->GetState(&State));
-    if (State == AudioSessionState::AudioSessionStateActive)
-        set_time_active_since(); // TODO change name
-    else
-        set_time_inactive_since();
+    set_state(State);
 #else
-    set_time_active_since();
+    set_state(AudioSessionState::AudioSessionStateActive);
 #endif
 
     /* Fix for Sndvol, if a new session is detected when the process was just
@@ -882,24 +875,24 @@ done:
 */
 void AudioSession::state_changed_callback_handler(AudioSessionState newstatus)
 {
+    set_state(newstatus); // set this before calling apply settings
+
     switch (newstatus)
     {
-        case AudioSessionState::AudioSessionStateActive:
-                set_time_active_since(); // set this before calling apply settings
-                ApplyVolumeSettings();
-                break;
+    case AudioSessionState::AudioSessionStateActive:
+        ApplyVolumeSettings();
+        break;
 
-        case AudioSessionState::AudioSessionStateInactive:
-                set_time_inactive_since();
-                RestoreVolume();
-                break;
+    case AudioSessionState::AudioSessionStateInactive:
+        RestoreVolume();
+        break;
     }
 }
 
 /*
-    Changes or not Session Volume based on current saved session settings.
+    Changes Session Volume based on current saved session settings.
 
-    It gets settings from his AudioMonitor.
+    It gets settings from his AudioMonitor to decide if change vol or not.
 
     Note: SndVol uses the last changed session's volume on new instances of the same process(SID) as default vol.
     It takes ~5 sec to register a new volume level back at the registry, key:
@@ -928,15 +921,26 @@ HRESULT AudioSession::ApplyVolumeSettings()
             change_vol = false;
     }
 
-    // if AudioSession::is_volume_at_default is true, the session is intact, not changed, else not
+    // if AudioSession::is_volume_at_default is true, the session is at user default volume.
     // if AudioMonitor::m_auto_change_volume_flag is true, auto volume reduction is activated, else disabled.
-    if ((m_is_volume_at_default) && (spAudioMonitor->m_auto_change_volume_flag) && change_vol)
+    if (/*(m_is_volume_at_default) &&*/ (spAudioMonitor->m_auto_change_volume_flag) && change_vol)
     {
         float set_vol;
         if (ses_setting.treat_vol_as_percentage)
-            set_vol = m_default_volume * (1.0f - current_vol_reduction);
+        {
+            if (current_vol_reduction <= 1.0f)
+                set_vol = m_default_volume * (1.0f - current_vol_reduction);
+            else
+            {
+                // rises volume % if vol_reduction % is greater than 1.0.
+                set_vol = m_default_volume * current_vol_reduction;
+                if (set_vol > 1.0f) set_vol = 1.0f;
+            }
+        }
         else
             set_vol = current_vol_reduction;
+
+        if (set_vol)
 
         ChangeVolume(set_vol);
         m_is_volume_at_default = false; // mark that the session is NOT at default state.
@@ -1113,17 +1117,23 @@ void AudioSession::touch()
     m_last_modified_on = std::chrono::steady_clock::now();
 }
 
-void AudioSession::set_time_inactive_since()
+void AudioSession::set_state(AudioSessionState state)
 {
-    dprintf("AudioSession::set_time_inactive_since PID[%d]  m_last_active_state to now()\n", getPID());
-    m_last_active_state = std::chrono::steady_clock::now();
-    m_current_state = AudioSessionState::AudioSessionStateInactive;
-}
-void AudioSession::set_time_active_since()
-{
-    dprintf("AudioSession::set_time_active_since PID[%d] m_last_active_state to max()\n", getPID());
-    m_last_active_state = std::chrono::steady_clock::time_point::max();
-    m_current_state = AudioSessionState::AudioSessionStateActive;
+    switch (state)
+    {
+    case AudioSessionState::AudioSessionStateActive:
+        dprintf("AudioSession::set_state PID[%d] m_last_active_state to max()\n", getPID());
+        m_last_active_state = std::chrono::steady_clock::time_point::max();
+        m_current_state = AudioSessionState::AudioSessionStateActive;
+        break;
+
+    case AudioSessionState::AudioSessionStateInactive:
+    case AudioSessionState::AudioSessionStateExpired:
+        dprintf("AudioSession::set_state PID[%d]  m_last_active_state to now()\n", getPID());
+        m_last_active_state = std::chrono::steady_clock::now();
+        m_current_state = AudioSessionState::AudioSessionStateInactive;
+        break;
+    }
 }
 
 
@@ -2202,22 +2212,18 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 
         m_settings = settings;
 
-        if (!m_settings.use_included_filter)
+        // convert excluded process names to lower
+        for (auto n : m_settings.excluded_process)
         {
-            // convert process names to lower
-            for (auto n : m_settings.excluded_process)
-            {
-                std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-            }
+            std::transform(n.begin(), n.end(), n.begin(), ::tolower);
         }
-        else
+
+        // convert included process names to lower
+        for (auto n : m_settings.included_process)
         {
-            // convert process names to lower
-            for (auto n : m_settings.included_process)
-            {
-                std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-            }
+            std::transform(n.begin(), n.end(), n.begin(), ::tolower);
         }
+
 
         if (m_settings.ses_global_settings.vol_reduction < 0)
             m_settings.ses_global_settings.vol_reduction = 0.0f;

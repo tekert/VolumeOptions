@@ -40,6 +40,19 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     else
         CheckRadioButton(hDlg, IDC_RADIO_EXCLUDEFILTER, IDC_RADIO_INCLUDEFILTER, IDC_RADIO_EXCLUDEFILTER);
 
+    HWND include_edit = GetDlgItem(hDlg, IDC_EDIT_INCLUDEFILTER);
+    HWND exclude_edit = GetDlgItem(hDlg, IDC_EDIT_EXCLUDEFILTER);
+    if (mon_settings.use_included_filter)
+    {
+        EnableWindow(include_edit, TRUE);
+        EnableWindow(exclude_edit, FALSE);
+    }
+    else
+    {
+        EnableWindow(include_edit, FALSE);
+        EnableWindow(exclude_edit, TRUE);
+    }
+
     std::wstring included_process_list;
     for (const auto p : mon_settings.included_process)
         included_process_list += (p + L";");
@@ -104,7 +117,12 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
     // ------- Retrieve Session settings group
 
-    // TODO: get slider value..
+    // Get volume level from slider value
+    HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
+    UINT value = static_cast<UINT>(SendMessage(hVolSlider, TBM_GETPOS, 0, 0));
+    float vol_value = static_cast<float>(value) / 100;
+    ses_settings.vol_reduction = vol_value;
+    wprintf(L"Trackbar pos = %f \n", ses_settings.vol_reduction);
 
     state = IsDlgButtonChecked(hDlg, IDC_CHECK_APPLYONLYACTIVE);
     if (state == BST_CHECKED)
@@ -190,14 +208,33 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case IDC_RADIO_VOLUMEFIXED: case IDC_RADIO_VOLUMEPERCENTAGE:
             if (HIWORD(wParam) == BN_CLICKED)
             {
-                wprintf(L"BN_CLICKED\n");
+                // SW_HIDE SW_SHOW
+               // HWND slider = GetDlgItem(hDlg, IDC_SLIDER_TEST);
+                //ShowWindow(slider, SW_SHOW);
+                dwprintf(L"BN_CLICKED\n");
             }
             return TRUE;
 
         case IDC_CHECK_EXCLUDEOWNPROCESS:
             return TRUE;
 
-        case IDC_RADIO_EXCLUDEFILTER: case IDC_RADIO_INCLUDEFILTER:
+        case IDC_RADIO_EXCLUDEFILTER:
+        {
+            HWND include_edit = GetDlgItem(hDlg, IDC_EDIT_INCLUDEFILTER);
+            HWND exclude_edit = GetDlgItem(hDlg, IDC_EDIT_EXCLUDEFILTER);
+            EnableWindow(include_edit, FALSE);
+            EnableWindow(exclude_edit, TRUE);
+        }
+            return TRUE;
+
+        case IDC_RADIO_INCLUDEFILTER:
+        {
+            HWND include_edit = GetDlgItem(hDlg, IDC_EDIT_INCLUDEFILTER);
+            HWND exclude_edit = GetDlgItem(hDlg, IDC_EDIT_EXCLUDEFILTER);
+            EnableWindow(include_edit, TRUE);
+            EnableWindow(exclude_edit, FALSE);
+
+        }
             return TRUE;
 
         default:
@@ -210,15 +247,15 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         switch (LOWORD(wParam))
         {
         case SB_THUMBPOSITION:
-            wprintf(L"pos level = %d\n", HIWORD(wParam));
+            dwprintf(L"pos level = %d\n", HIWORD(wParam));
             break;
 
         case SB_THUMBTRACK:
-            wprintf(L"track level = %d\n", HIWORD(wParam));
+            dwprintf(L"track level = %d\n", HIWORD(wParam));
             break;
 
         }
-        wprintf(L"what lo=%d hi=%d\n", LOWORD(wParam), HIWORD(wParam));
+        dwprintf(L"what lo=%d hi=%d\n", LOWORD(wParam), HIWORD(wParam));
         return 0;
 
     case  WM_INITDIALOG:
