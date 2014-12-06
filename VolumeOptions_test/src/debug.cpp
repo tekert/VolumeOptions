@@ -1,5 +1,5 @@
 
-#include "../volumeoptions/vo_config.h"
+#include "../volumeoptions/config.h"
 
 
 /************************************************************************************/

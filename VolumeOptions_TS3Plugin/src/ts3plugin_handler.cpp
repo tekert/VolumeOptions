@@ -4,8 +4,8 @@
  * Copyright (c) 2008-2014 TeamSpeak Systems GmbH
  */
 
-#include "../volumeoptions/sound_plugin.h"
-#include "../volumeoptions/windows_plugin_gui.h"
+#include "../volumeoptions/vo_ts3plugin.h"
+#include "../volumeoptions/vo_gui.h"
 
 #ifdef _WIN32
 #pragma warning (disable : 4100)  /* Disable Unreferenced parameter warning */
@@ -24,7 +24,7 @@
 #include "../ts3client/public_definitions.h"
 #include "../ts3client/public_rare_definitions.h"
 #include "../ts3client/ts3_functions.h"
-#include "../volumeoptions/plugin.h"
+#include "../volumeoptions/ts3plugin_handler.h"
 #include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;

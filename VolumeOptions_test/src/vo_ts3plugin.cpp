@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/algorithm/string.hpp>
 
 #include "../volumeoptions/utilities.h"
-#include "../volumeoptions/vo_config.h"
-#include "../volumeoptions/sound_plugin.h"
+#include "../volumeoptions/config.h"
+#include "../volumeoptions/vo_ts3plugin.h"
 
 
 namespace vo

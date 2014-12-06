@@ -18,26 +18,23 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\plugin.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\sound_plugin.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\sound_windows.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\utilities.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\windows_plugin_gui.cpp">
+    <ClCompile Include="src\ts3plugin_handler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\audiomonitor_wasapi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vo_ts3plugin.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vo_gui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="volumeoptions\plugin.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ts3client\clientlib_publicdefinitions.h">
       <Filter>Header Files\ts3client</Filter>
     </ClInclude>
@@ -59,9 +56,6 @@
     <ClInclude Include="ts3client\ts3_functions.h">
       <Filter>Header Files\ts3client</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\sound_plugin.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\vo_settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -71,19 +65,25 @@
     <ClInclude Include="resources\version_res.h">
       <Filter>Resource Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\vo_config.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="volumeoptions\sound_windows.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\utilities.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resources\gui_resource.h">
       <Filter>Resource Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\windows_plugin_gui.h">
+    <ClInclude Include="volumeoptions\ts3plugin_handler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\vo_gui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\audiomonitor_wasapi.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\vo_ts3plugin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

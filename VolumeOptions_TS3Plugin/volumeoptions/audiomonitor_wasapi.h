@@ -61,7 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 
-#include "../volumeoptions/vo_config.h"
+#include "../volumeoptions/config.h"
 #include "../volumeoptions/vo_settings.h"
 
 #ifndef SAFE_RELEASE

@@ -62,8 +62,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cassert>
 #include <iostream>
 
-#include "../volumeoptions/vo_config.h"
-#include "../volumeoptions/sound_windows.h"
+#include "../volumeoptions/config.h"
+#include "../volumeoptions/audiomonitor_wasapi.h"
 
 // NOTE: Dont change these unless neccesary.
 #include <initguid.h> // for macro DEFINE_GUID definition http://support2.microsoft.com/kb/130869/en-us

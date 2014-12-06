@@ -28,9 +28,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "../volumeoptions/vo_config.h"
+#include "../volumeoptions/config.h"
 #include "../volumeoptions/utilities.h"
-#include "../volumeoptions/sound_windows_ipc.h" // NOTE: include this it before boost/interprocess includes
+#include "../volumeoptions/audiomonitor_ipc.h" // NOTE: include this it before boost/interprocess includes
 
 #include <limits>
 

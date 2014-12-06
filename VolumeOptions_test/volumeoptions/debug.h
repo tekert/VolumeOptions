@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef DEBUG_H
 #define DEBUG_H
 
-#include "../volumeoptions/vo_config.h"
+#include "../volumeoptions/config.h"
 #include <cassert>
 
 std::string demangle(char const* name);

@@ -40,9 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "stdint.h"
 
 #ifdef _WIN32
-#include "sound_windows.h"
+#include "../volumeoptions/audiomonitor_wasapi.h"
 #endif
-#include "vo_settings.h"
+#include "../volumeoptions/vo_settings.h"
 
 namespace vo {
 

@@ -75,7 +75,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <condition_variable>
 #include <unordered_map>
 
-#include "../volumeoptions/sound_windows.h"
+#include "../volumeoptions/audiomonitor_wasapi.h"
 
 namespace vo {
 namespace ipc {

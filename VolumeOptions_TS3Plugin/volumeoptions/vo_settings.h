@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <map>
 
-#include "../volumeoptions/vo_config.h"
+#include "../volumeoptions/config.h"
 
 namespace vo {
 

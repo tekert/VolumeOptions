@@ -1,7 +1,7 @@
 
 #ifdef _WIN32
 
-#include "../volumeoptions/sound_plugin.h" // TODO: separate implementation from interface to not include asio here.
+#include "../volumeoptions/vo_ts3plugin.h" // TODO: separate implementation from interface to not include asio here.
 
 #include <windows.h>
 #include <minmax.h> // for max

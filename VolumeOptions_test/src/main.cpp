@@ -1,7 +1,7 @@
 
 #include <stdlib.h>
 
-#include "../volumeoptions/sound_plugin.h"
+#include "../volumeoptions/vo_ts3plugin.h"
 
 // TODO AudioMonitor example
 
