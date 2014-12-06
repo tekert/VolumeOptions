@@ -102,7 +102,13 @@ const char* ts3plugin_author() {
 /* Plugin description */
 const char* ts3plugin_description() {
 	/* If you want to use wchar_t, see ts3plugin_name() on how to use */
-    return "More Volume Options";
+    return "Lower volume of other audio sessions while someone talks.\n"
+        "Configurable filter settings, per client, channel or audio session.\n"
+        "Maintains user audio sessions volume level on restore.\n"
+        "\n"
+        "Currently in beta testing, Endpoint device selection comming in the future.\n"
+        "\n"
+        "Open Source: https://github.com/tekert/VolumeOptions\n";
 }
 
 /* Set TeamSpeak 3 callback functions */
@@ -196,12 +202,22 @@ int ts3plugin_offersConfigure() {
 }
 
 /* Plugin might offer a configuration window. If ts3plugin_offersConfigure returns 0, this function does not need to be implemented. */
-void ts3plugin_configure(void* handle, void* qParentWidget) {
-    printf("VO_PLUGIN_INT: configure\n");
+void ts3plugin_configure(void* handle, void* qParentWidget) 
+{
+    // Limit ts3 to only one dialog (insted of using modal dialog boxes) (static thread safe C++11)
+    static std::recursive_mutex mutex;
 
+#ifdef _DEBUG
     std::cout << std::this_thread::get_id() << std::endl;
-    int r = DialogThread(g_voptions.get(), handle);
-    printf("VO_PLUGIN_INT: DialogThread ret = %d\n", r);
+#endif
+    std::unique_lock<std::recursive_mutex> l(mutex, std::try_to_lock);
+    if (l.owns_lock())
+    {
+        int r = DialogThread(g_voptions.get(), handle);
+        printf("VO_PLUGIN_INT: DialogThread returned = %d\n", r);
+    }
+    else
+        printf("VO_PLUGIN_INT: VolumeOptions config already open.\n");
 }
 
 /*

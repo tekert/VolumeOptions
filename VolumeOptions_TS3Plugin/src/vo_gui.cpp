@@ -1,6 +1,7 @@
 
 #ifdef _WIN32
 
+#include "../volumeoptions/config.h"
 #include "../volumeoptions/vo_ts3plugin.h" // TODO: separate implementation from interface to not include asio here.
 
 #include <windows.h>
@@ -14,8 +15,39 @@
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
 #pragma comment(lib, "ComCtl32.lib")
 
+// 0 for modal, 1 for modeless.
+#define VO_MODELESS_DIALOG_GUI 1
+
+// 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
+HMODULE GetCurrentModule()
+{
+    HMODULE hModule = NULL;
+    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        reinterpret_cast<LPCTSTR>(GetCurrentModule), &hModule);
+
+    return hModule;
+}
+HMODULE GetCurrentModule_ver2()
+{
+    static int s_somevar = 0;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!::VirtualQuery(&s_somevar, &mbi, sizeof(mbi)))
+    {
+        return NULL;
+    }
+    return static_cast<HMODULE>(mbi.AllocationBase);
+}
+#ifdef _MSC_VER
+// Base address from PE header. HINSTANCE are just pointers to base module address
+EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+#define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
+#endif
+
+// Helper class to control activation context
+// http://msdn.microsoft.com/en-us/library/aa375197.aspx
 class CActivationContext
 {
     HANDLE m_hActivationContext;
@@ -77,13 +109,16 @@ public:
     }
 };
 
-CActivationContext g_context; // global
+CActivationContext g_context; // global, for loaded dlls isolation.
+
+// http://msdn.microsoft.com/en-us/library/aa375197.aspx
+// Modified to use our auto linked manifest
 void InitIsolationAware(HINSTANCE hInst)
 {
     HANDLE hActCtx;
     ACTCTX actctx = { sizeof(actctx) };
     actctx.hModule = hInst;
-    actctx.lpResourceName = ISOLATIONAWARE_MANIFEST_RESOURCE_ID;
+    actctx.lpResourceName = ISOLATIONAWARE_MANIFEST_RESOURCE_ID; // our pragma uses resource 2 it seems.
     actctx.dwFlags = ACTCTX_FLAG_HMODULE_VALID | ACTCTX_FLAG_RESOURCE_NAME_VALID;
     hActCtx = CreateActCtx(&actctx);
     g_context.Set(hActCtx);
@@ -94,6 +129,7 @@ void InitIsolationAware(HINSTANCE hInst)
 
 // Description:
 //   Creates a tooltip for an item in a dialog box. 
+//      tuned for volumeoptions config dialog.
 // Parameters:
 //   idTool - identifier of an dialog box item.
 //   nDlg - window handle of the dialog box.
@@ -147,6 +183,46 @@ HWND CreateToolTip(int toolID, HWND hDlg, PTSTR pszText)
     return hwndTip;
 }
 
+/*
+    Centers HWND window to parent window if it has one
+*/
+BOOL CenterWindow(HWND hwndWindow)
+{
+    HWND hwndParent;
+    RECT rectWindow, rectParent;
+
+    // make the window relative to its parent
+    if ((hwndParent = GetParent(hwndWindow)) != NULL)
+    {
+        GetWindowRect(hwndWindow, &rectWindow);
+        GetWindowRect(hwndParent, &rectParent);
+
+        int nWidth = rectWindow.right - rectWindow.left;
+        int nHeight = rectWindow.bottom - rectWindow.top;
+
+        int nX = ((rectParent.right - rectParent.left) - nWidth) / 2 + rectParent.left;
+        int nY = ((rectParent.bottom - rectParent.top) - nHeight) / 2 + rectParent.top;
+
+        int nScreenWidth = GetSystemMetrics(SM_CXSCREEN);
+        int nScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        // make sure that the dialog box never moves outside of the screen
+        if (nX < 0) nX = 0;
+        if (nY < 0) nY = 0;
+        if (nX + nWidth > nScreenWidth) nX = nScreenWidth - nWidth;
+        if (nY + nHeight > nScreenHeight) nY = nScreenHeight - nHeight;
+
+        MoveWindow(hwndWindow, nX, nY, nWidth, nHeight, FALSE);
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/*
+    Sets tooltip descriptions for volumeoptions config dialog
+*/
 void SetControlTooltips(HWND hDlg)
 {
     // Tooltip values:
@@ -168,13 +244,13 @@ void SetControlTooltips(HWND hDlg)
         L"Default: Checked (true)");
 
     CreateToolTip(IDC_RADIO_EXCLUDEFILTER, hDlg,
-        L"Excluded_process and included_process takes a list of executable names or paths or SIIDs\r\n"
+        L"Excluded process and Included process takes a list of executable names or paths or SIIDs\r\n"
         L"\r\n"
         L"Format: A list of process names separated by \";\"\r\n"
-        L"  in case of process names, can be anything, from full path to name to search.\r\n"
+        L"  in case of process names, can be anything, from full path to process name.\r\n"
         L"\r\n"
         L"Example:\r\n"
-        L"  excluded_process = process1.exe; C:\\this\\path\\to\\my\\program; _player\r\n");
+        L"  process1.exe;X:\\this\\path\\to\\my\\program; _player;  \\this\\directory\r\n");
 
     CreateToolTip(IDC_CHECK_VOLUMEASPERCENTAGE, hDlg,
         L"Cheked: Take volume value as %.\r\n"
@@ -263,6 +339,9 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     SetControlTooltips(hDlg);
 }
 
+/*
+    Takes values from dialog controls and updates VolumeOptions settings.
+*/
 void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 {
     // settings shortcuts
@@ -452,6 +531,8 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         pvo = (vo::VolumeOptions*)lParam;
         vo_settings = pvo->get_current_settings();
 
+        CenterWindow(hDlg);
+
         InitControlValues(hDlg, vo_settings);
         UpdatePercentageSigns(hDlg);
 
@@ -461,7 +542,11 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_CLOSE:
     {
+#if VO_MODELESS_DIALOG_GUI
         DestroyWindow(hDlg);
+#else
+        EndDialog(hDlg, S_OK);
+#endif
         return TRUE;
     }
     break;
@@ -474,8 +559,6 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     return FALSE;
 }
-
-
 
 void initTooltipClass(HWND hDlg)
 {
@@ -492,52 +575,26 @@ void initTooltipClass(HWND hDlg)
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
-
-// 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
-HMODULE GetCurrentModule()
-{
-    HMODULE hModule = NULL;
-    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-        reinterpret_cast<LPCTSTR>(GetCurrentModule), &hModule);
-
-    return hModule;
-}
-HMODULE GetCurrentModule_ver2()
-{
-    static int s_somevar = 0;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (!::VirtualQuery(&s_somevar, &mbi, sizeof(mbi)))
-    {
-        return NULL;
-    }
-    return static_cast<HMODULE>(mbi.AllocationBase);
-}
-#ifdef _MSC_VER
-// Base address from PE header. HINSTANCE are just pointers to base module address
-EXTERN_C IMAGE_DOS_HEADER __ImageBase;
-#define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
-#endif
-
-
 int DialogThread(vo::VolumeOptions* pvo, void* vparent)
 {
-    HWND hDlg;
-    MSG msg;
-    BOOL ret;
     HWND parent = static_cast<HWND>(vparent);
 
     int nCmdShow = SW_SHOWNORMAL;
     HINSTANCE hInst = GetCurrentModule();
 
-    dprintf("Init Common Controls and CreateDialogParam\n");
+    dprintf("Init Common Controls and InitIsolationAware\n");
 
     InitCommonControls();
-
     InitIsolationAware(hInst);
 
     CActCtxActivator ScopedContext(g_context);
 
+#if VO_MODELESS_DIALOG_GUI
+    HWND hDlg;
+    MSG msg;
+    BOOL getret;
 
+    dprintf("Creating Modeless dialog box:\n");
     hDlg = CreateDialogParam(hInst, MAKEINTRESOURCE(IDD_VO_CONFIG_DIALOG), parent, DialogProc, LPARAM(pvo));
     if (hDlg == NULL)
     {
@@ -545,14 +602,15 @@ int DialogThread(vo::VolumeOptions* pvo, void* vparent)
         dprintf("CreateDialogParam error: %d\n", err); // TODO, boost::error_codes
         return err;
     }
-    BOOL showret = ShowWindow(hDlg, nCmdShow);
+    ShowWindow(hDlg, nCmdShow); // modeless dialog boxes must be show if not style defined to
 
-    dprintf("Joining Dialog message loop... ShowWindow = %d  hDlg= %d\n", showret, (int)hDlg);
 
-    while (ret = GetMessage(&msg, 0, 0, 0))
+    dprintf("Joining Modeless Dialog message loop... hDlg= %d\n", (int)hDlg);
+
+    while (getret = GetMessage(&msg, 0, 0, 0))
     {
-        if (ret == -1)
-            return -1;
+        if (getret == -1)
+            break;
 
         if (!IsDialogMessage(hDlg, &msg)) {
             TranslateMessage(&msg);
@@ -560,9 +618,24 @@ int DialogThread(vo::VolumeOptions* pvo, void* vparent)
         }
     }
 
-    dprintf("Exiting Dialog message loop with code %d, msg.wParam = %d\n", ret, (int)msg.wParam);
+    dprintf("Exiting Modeless Dialog message loop with code GetMessage= %d, msg.wParam = %d\n",
+        getret, (int)msg.wParam);
 
     return (int)msg.wParam;
+#else
+    dprintf("Creating Modal dialog box:\n");
+    INT_PTR modalret = DialogBoxParam(hInst, MAKEINTRESOURCE(IDD_VO_CONFIG_DIALOG), parent, DialogProc, LPARAM(pvo));
+    if (modalret != S_OK)
+    {
+        DWORD err = GetLastError();
+        dprintf("DialogBoxParam error: %d\n", err); // TODO, boost::error_codes
+        return err;
+    }
+
+    dprintf("Exiting Modal Dialog with code: %d\n",  (int)modalret);
+
+    return (int)modalret;
+#endif
 }
 
 
