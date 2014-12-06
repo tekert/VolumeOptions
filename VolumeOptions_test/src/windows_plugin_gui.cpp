@@ -16,6 +16,97 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #pragma comment(lib, "ComCtl32.lib")
 
+// Description:
+//   Creates a tooltip for an item in a dialog box. 
+// Parameters:
+//   idTool - identifier of an dialog box item.
+//   nDlg - window handle of the dialog box.
+//   pszText - string to use as the tooltip text.
+// Returns:
+//   The handle to the tooltip.
+//
+HWND CreateToolTip(int toolID, HWND hDlg, PTSTR pszText)
+{
+    HINSTANCE hinst = GetModuleHandle(NULL);
+
+    if (!toolID || !hDlg || !pszText)
+    {
+        return FALSE;
+    }
+    // Get the window of the tool.
+    HWND hwndTool = GetDlgItem(hDlg, toolID);
+
+    // Create the tooltip. hinst is the global instance handle.
+    HWND hwndTip = CreateWindowEx(NULL, TOOLTIPS_CLASS, NULL,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        hDlg, NULL,
+        hinst, NULL);
+
+    if (!hwndTool || !hwndTip)
+    {
+        return (HWND)NULL;
+    }
+
+    // Associate the tooltip with the tool.
+    TOOLINFO toolInfo = { 0 };
+    toolInfo.cbSize = sizeof(toolInfo);
+    toolInfo.hwnd = hDlg;
+    toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS | TTF_PARSELINKS;//| TTF_CENTERTIP;
+    toolInfo.uId = (UINT_PTR)hwndTool;
+    toolInfo.lpszText = pszText;
+    SendMessage(hwndTip, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+
+    // Fix ugly windows tooltip time settings. (wish every software did this)
+    WORD milliseconds = 0x7FFF;
+    DWORD lParam = milliseconds;
+    SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, lParam);
+    SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_INITIAL, 0);
+    SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_RESHOW, 0);
+
+    // Enable multiline tolltip
+    SendMessage(hwndTip, TTM_SETMAXTIPWIDTH, 0, MAXINT);
+
+    return hwndTip;
+}
+
+void SetControlTooltips(HWND hDlg)
+{
+    // Tooltip values:
+
+    CreateToolTip(IDC_CHECK_EXCLUDEOWNCLIENT, hDlg,
+        L"Ignore volume reduction when we talk?\r\n"
+        L"Default: Checked (true)");
+
+    CreateToolTip(IDC_CHECK_APPLYONLYACTIVE, hDlg,
+        L"Change volume only to active (playing sound) audio sessions?\r\n"
+        L"Default: Checked (true) (recommended)");
+
+    CreateToolTip(IDC_EDIT_DELAYTIME, hDlg,
+        L"Time in milliseconds to delay sessions volume restore when no one is talking.\r\n"
+        L"Default: 400ms");
+
+    CreateToolTip(IDC_CHECK_EXCLUDEOWNPROCESS, hDlg,
+        L"In this case, exclude Team Speak? this should be true in most cases.\r\n"
+        L"Default: Checked (true)");
+
+    CreateToolTip(IDC_RADIO_EXCLUDEFILTER, hDlg,
+        L"Excluded_process and included_process takes a list of executable names or paths or SIIDs\r\n"
+        L"\r\n"
+        L"Format: A list of process names separated by \";\"\r\n"
+        L"  in case of process names, can be anything, from full path to name to search.\r\n"
+        L"\r\n"
+        L"Example:\r\n"
+        L"  excluded_process = process1.exe; C:\\this\\path\\to\\my\\program; _player\r\n");
+
+    CreateToolTip(IDC_CHECK_VOLUMEASPERCENTAGE, hDlg,
+        L"Cheked: Take volume value as %.\r\n"
+        L"Uncheked: Take volume level as fixed value.\r\n"
+        L"Default: Checked (%)");
+
+}
+
 /*
     Initializes Dialog controls values from VolumeOptions settings
 */
@@ -73,17 +164,12 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
 
     // ------ Audio Monitor Session settings
 
-    unsigned int slider_level = 0;
     if (ses_settings.treat_vol_as_percentage)
-    {
-        slider_level = unsigned int(ses_settings.vol_reduction * 100);
-        CheckRadioButton(hDlg, IDC_RADIO_VOLUMEFIXED, IDC_RADIO_VOLUMEPERCENTAGE, IDC_RADIO_VOLUMEPERCENTAGE);
-    }
+        CheckDlgButton(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE, BST_CHECKED);
     else
-    {
-        slider_level = unsigned int(ses_settings.vol_reduction * 100); // TODO another slider
-        CheckRadioButton(hDlg, IDC_RADIO_VOLUMEFIXED, IDC_RADIO_VOLUMEPERCENTAGE, IDC_RADIO_VOLUMEFIXED);
-    }
+        CheckDlgButton(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE, BST_UNCHECKED);
+
+    unsigned int slider_level = unsigned int(ses_settings.vol_reduction * 100);
     HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
     SendMessage(hVolSlider, TBM_SETPOS, TRUE, slider_level);
 
@@ -97,6 +183,8 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
         delay_wstring = std::to_wstring(ses_settings.vol_up_delay.count());
     SetDlgItemText(hDlg, IDC_EDIT_DELAYTIME, delay_wstring.c_str());
 
+    // Set tooltip help for controls
+    SetControlTooltips(hDlg);
 }
 
 void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
@@ -116,6 +204,12 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
 
     // ------- Retrieve Session settings group
+
+    state = IsDlgButtonChecked(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE);
+    if (state == BST_CHECKED)
+        ses_settings.treat_vol_as_percentage = true;
+    else
+        ses_settings.treat_vol_as_percentage = false;
 
     // Get volume level from slider value
     HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
@@ -177,6 +271,22 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
 }
 
+void UpdatePercentageSigns(HWND hDlg)
+{
+    HWND per0 = GetDlgItem(hDlg, IDC_STATIC_PER0);
+    HWND per100 = GetDlgItem(hDlg, IDC_STATIC_PER100);
+    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE))
+    {
+        ShowWindow(per0, SW_SHOW);
+        ShowWindow(per100, SW_SHOW);
+    }
+    else
+    {
+        ShowWindow(per0, SW_HIDE);
+        ShowWindow(per100, SW_HIDE);
+    }
+}
+
 INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     static vo::VolumeOptions* pvo = nullptr;
@@ -199,24 +309,27 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             SendMessage(hDlg, WM_CLOSE, 0, 0);
             return TRUE;
 
-        case IDC_CHECK_EXCLUDEOWNCLIENT:
-            return TRUE;
+       // case IDC_CHECK_EXCLUDEOWNCLIENT:
+           // return TRUE;
 
-        case IDC_CHECK_APPLYONLYACTIVE:
-            return TRUE;
+      //  case IDC_CHECK_APPLYONLYACTIVE:
+       //     if (HIWORD(wParam) == BN_CLICKED)
+      //      {
+       //         dwprintf(L"BN_CLICKED\n");
+       //     }
+       //     return TRUE;
 
-        case IDC_RADIO_VOLUMEFIXED: case IDC_RADIO_VOLUMEPERCENTAGE:
+        case IDC_CHECK_VOLUMEASPERCENTAGE:
+        {
             if (HIWORD(wParam) == BN_CLICKED)
             {
-                // SW_HIDE SW_SHOW
-               // HWND slider = GetDlgItem(hDlg, IDC_SLIDER_TEST);
-                //ShowWindow(slider, SW_SHOW);
-                dwprintf(L"BN_CLICKED\n");
+                UpdatePercentageSigns(hDlg);
             }
+        }
             return TRUE;
 
-        case IDC_CHECK_EXCLUDEOWNPROCESS:
-            return TRUE;
+       // case IDC_CHECK_EXCLUDEOWNPROCESS:
+         //   return TRUE;
 
         case IDC_RADIO_EXCLUDEFILTER:
         {
@@ -264,6 +377,7 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         vo_settings = pvo->get_current_settings();
 
         InitControlValues(hDlg, vo_settings);
+        UpdatePercentageSigns(hDlg);
 
         return TRUE;
     }
@@ -283,6 +397,21 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
     } // end switch
 
     return FALSE;
+}
+
+void initTooltipClass(HWND hDlg)
+{
+    HINSTANCE hinst = GetModuleHandle(NULL);
+
+    HWND hwndTip = CreateWindowEx(NULL, TOOLTIPS_CLASS, NULL,
+        WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        hDlg, NULL, hinst,
+        NULL);
+
+    SetWindowPos(hwndTip, HWND_TOPMOST, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 int DialogThread(vo::VolumeOptions* pvo)

@@ -140,7 +140,7 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "\n"
         "[plugin]\n"
         "\n"
-        "# change volume when we talk ? default 1(true)\n"
+        "# ignore volume change when we talk ? default 1(true)\n"
         "exclude_own_client = 1\n"
         "\n"
         "\n"
