@@ -160,8 +160,10 @@
     <ClCompile Include="src\sound_plugin.cpp" />
     <ClCompile Include="src\sound_windows.cpp" />
     <ClCompile Include="src\utilities.cpp" />
+    <ClCompile Include="src\windows_plugin_gui.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="resources\gui_resource.h" />
     <ClInclude Include="resources\version_res.h" />
     <ClInclude Include="ts3client\clientlib_publicdefinitions.h" />
     <ClInclude Include="ts3client\plugin_definitions.h" />
@@ -177,8 +179,10 @@
     <ClInclude Include="volumeoptions\version.h" />
     <ClInclude Include="volumeoptions\vo_config.h" />
     <ClInclude Include="volumeoptions\vo_settings.h" />
+    <ClInclude Include="volumeoptions\windows_plugin_gui.h" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="resources\gui_resource.rc" />
     <ResourceCompile Include="resources\version_res.rc">
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">_WIN64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">_WIN64;%(PreprocessorDefinitions)</PreprocessorDefinitions>

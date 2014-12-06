@@ -51,7 +51,6 @@ class VolumeOptions
 {
 public:
 
-    VolumeOptions(const std::string &sconfigPath);
     VolumeOptions(const volume_options_settings& settings);
     VolumeOptions();
     ~VolumeOptions();
@@ -77,6 +76,7 @@ public:
 
     vo::volume_options_settings get_current_settings() const; // TODO: minimize copies, separate audio monitor settings
     void set_settings(vo::volume_options_settings& settings);
+    int set_settings_from_file(const std::string &configIniFile, bool create_if_notfound = false);
 
     void restore_default_volume();
     float get_global_volume_reduction() const;
@@ -102,7 +102,7 @@ private:
     void common_init();
 
     void create_config_file(std::fstream& in);
-    int parse_config(std::fstream& in, const std::string& configFile = ".");
+    int parse_config(const std::string& configFile = ".");
 
     int apply_status(); // starts or stops audio monitor based on ts3 talking statuses.
 
@@ -127,6 +127,11 @@ private:
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;
 };
+
+// free functions to help parsing of process and pid names in a string separated by ";"
+void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s);
+void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
+void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l);
 
 
 } // end namespace vo

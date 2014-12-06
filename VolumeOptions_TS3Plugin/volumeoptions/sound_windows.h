@@ -120,22 +120,25 @@ private:
     void InitEvents();
     void StopEvents();
 
+    void state_changed_callback_handler(AudioSessionState newstatus);
+
     float GetCurrentVolume() const;
     HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
     void UpdateDefaultVolume(const float new_def);
 
-    enum resume_t { NORMAL = false, NO_DELAY = true };
-    HRESULT RestoreVolume(resume_t callback_no_delay = NORMAL);
+    enum class resume_t { NORMAL = false, NO_DELAY = true };
+    HRESULT RestoreVolume(resume_t callback_type = resume_t::NORMAL);
     void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
 
     void touch(); // sets m_last_modified_on now().
-    void set_time_active_since();
-    void set_time_inactive_since();
+    void set_state(AudioSessionState state);
+
+    AudioSessionState m_current_state;
 
     float m_default_volume; // always marks user default volume of this SID group session
-    bool is_volume_at_default;  // if true, session volume is at user default volume
+    bool m_is_volume_at_default;  // if true, session volume is at user default volume
 
     DWORD m_pid;
     std::wstring m_sid;
@@ -167,16 +170,12 @@ private:
 
     Use ::create() to instance the class, it will return a std::shared_ptr.
 
-    With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
-        from this class.
-    Without VO_ENABLE_EVENTS, events will be disabled (no callbacks from windows audio), thats means it wont
-        detect new sessions while monitor is active, and will lower volume of all applications
-        instead of only the active ones if configured to do so.
 */
 class AudioMonitor : public std::enable_shared_from_this < AudioMonitor >
 {
 public:
     /* Created with STOPPED status */
+
     // static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings,
         //const std::wstring& device_id = L"")  // if no variadic template support
     template<typename ...T>
@@ -193,6 +192,8 @@ public:
         DWORD dwStateMask = DEVICE_STATE_ACTIVE);
     static std::set<std::wstring> GetCurrentMonitoredEndpoints();
 
+    void ChangeDeviceID(const std::wstring& device_id);
+
     float GetVolumeReductionLevel();
     void SetSettings(vo::monitor_settings& settings);
     vo::monitor_settings GetSettings();
@@ -200,29 +201,27 @@ public:
     /* If Resume is used while Stopped it will use Start() */
     long Stop(); // Stops all events and deletes all saved sessions restoring default state.
     long Pause(); // Restores volume on all sessions and freezes volume change.
-    long Start(); // Resumes/Starts volume change and reapplies settings.
+    long Start(); // Resumes/Starts volume change and reapplies saved settings.
 #ifdef _DEBUG
     long Refresh(); // DEBUG Gets all current sessions in SndVol
 #endif
-#ifdef VO_ENABLE_EVENTS 
-    long InitEvents();
-    long StopEvents();
-#endif
-    void ChangeDeviceID(const std::wstring& device_id);
-    enum monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
-    enum monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR };
+
+    enum class monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
+    enum class monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR }; // TODO boost errors
     monitor_status_t GetStatus();
-    // Get
+    
     std::shared_ptr<boost::asio::io_service> get_io() const;
 
 private:
 
-    AudioMonitor(const vo::monitor_settings& settings, const std::wstring& device_id = L"");
+    AudioMonitor(const std::wstring& device_id = L"");
     void StartIOInit();
     void FinishIOInit();
 
-    // Main sessions container type
-    typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
+#ifdef VO_ENABLE_EVENTS 
+    long InitEvents();
+    long StopEvents();
+#endif
 
     void poll(); /* AudioMonitor main thread loop */
 
@@ -251,12 +250,14 @@ private:
     vo::monitor_settings m_settings;
     const std::chrono::seconds m_inactive_timeout;
     const std::chrono::seconds m_delete_expired_interval;
+    // Main sessions container type
 
     // Used to delay or cancel all volume restores  session_this_pointer -> timer
     std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores; //TODO: try to merge it with saved_sessions, new container or class
 
     bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
-    monitor_status_t m_current_status;
+    //monitor_status_t m_current_status;
+    std::atomic<monitor_status_t> m_current_status;
     monitor_error_t m_error_status;
 
     // Main sessions container type
@@ -280,7 +281,6 @@ private:
     // used when posting synchronous function calls to audiomonitor
     mutable std::mutex m_io_mutex;
     mutable std::condition_variable m_cond;
-
 
 
     // used to lock access to the class by only his own thread

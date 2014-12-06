@@ -14,36 +14,8 @@
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
-
 #pragma comment(lib, "ComCtl32.lib")
 
-// 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
-HMODULE GetCurrentModule()
-{
-    HMODULE hModule = NULL;
-    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-        reinterpret_cast<LPCTSTR>(GetCurrentModule), &hModule);
-
-    return hModule;
-}
-HMODULE GetCurrentModule_ver2()
-{
-    static int s_somevar = 0;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (!::VirtualQuery(&s_somevar, &mbi, sizeof(mbi)))
-    {
-        return NULL;
-    }
-    return static_cast<HMODULE>(mbi.AllocationBase);
-}
-#ifdef _MSC_VER
-// Base address from PE header. HINSTANCE are just pointers to base module address
-EXTERN_C IMAGE_DOS_HEADER __ImageBase;
-#define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
-#endif
-
-// Helper class to control activation context
-// http://msdn.microsoft.com/en-us/library/aa375197.aspx
 class CActivationContext
 {
     HANDLE m_hActivationContext;
@@ -105,16 +77,13 @@ public:
     }
 };
 
-CActivationContext g_context; // global, for loaded dlls isolation.
-
-// http://msdn.microsoft.com/en-us/library/aa375197.aspx
-// Modified to use our auto linked manifest
+CActivationContext g_context; // global
 void InitIsolationAware(HINSTANCE hInst)
 {
     HANDLE hActCtx;
     ACTCTX actctx = { sizeof(actctx) };
     actctx.hModule = hInst;
-    actctx.lpResourceName = ISOLATIONAWARE_MANIFEST_RESOURCE_ID; // our pragma uses resource 2 it seems.
+    actctx.lpResourceName = ISOLATIONAWARE_MANIFEST_RESOURCE_ID;
     actctx.dwFlags = ACTCTX_FLAG_HMODULE_VALID | ACTCTX_FLAG_RESOURCE_NAME_VALID;
     hActCtx = CreateActCtx(&actctx);
     g_context.Set(hActCtx);
@@ -125,7 +94,6 @@ void InitIsolationAware(HINSTANCE hInst)
 
 // Description:
 //   Creates a tooltip for an item in a dialog box. 
-//      tuned for volumeoptions config dialog.
 // Parameters:
 //   idTool - identifier of an dialog box item.
 //   nDlg - window handle of the dialog box.
@@ -179,9 +147,6 @@ HWND CreateToolTip(int toolID, HWND hDlg, PTSTR pszText)
     return hwndTip;
 }
 
-/*
-    Sets tooltip descriptions for volumeoptions config dialog
-*/
 void SetControlTooltips(HWND hDlg)
 {
     // Tooltip values:
@@ -298,9 +263,6 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     SetControlTooltips(hDlg);
 }
 
-/*
-    Takes values from dialog controls and updates VolumeOptions settings.
-*/
 void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 {
     // settings shortcuts
@@ -513,6 +475,8 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return FALSE;
 }
 
+
+
 void initTooltipClass(HWND hDlg)
 {
     HINSTANCE hinst = GetModuleHandle(NULL);
@@ -528,6 +492,33 @@ void initTooltipClass(HWND hDlg)
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
+
+// 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
+HMODULE GetCurrentModule()
+{
+    HMODULE hModule = NULL;
+    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        reinterpret_cast<LPCTSTR>(GetCurrentModule), &hModule);
+
+    return hModule;
+}
+HMODULE GetCurrentModule_ver2()
+{
+    static int s_somevar = 0;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!::VirtualQuery(&s_somevar, &mbi, sizeof(mbi)))
+    {
+        return NULL;
+    }
+    return static_cast<HMODULE>(mbi.AllocationBase);
+}
+#ifdef _MSC_VER
+// Base address from PE header. HINSTANCE are just pointers to base module address
+EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+#define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
+#endif
+
+
 int DialogThread(vo::VolumeOptions* pvo, void* vparent)
 {
     HWND hDlg;
@@ -541,9 +532,11 @@ int DialogThread(vo::VolumeOptions* pvo, void* vparent)
     dprintf("Init Common Controls and CreateDialogParam\n");
 
     InitCommonControls();
+
     InitIsolationAware(hInst);
 
     CActCtxActivator ScopedContext(g_context);
+
 
     hDlg = CreateDialogParam(hInst, MAKEINTRESOURCE(IDD_VO_CONFIG_DIALOG), parent, DialogProc, LPARAM(pvo));
     if (hDlg == NULL)

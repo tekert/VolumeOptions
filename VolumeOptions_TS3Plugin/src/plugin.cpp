@@ -5,11 +5,15 @@
  */
 
 #include "../volumeoptions/sound_plugin.h"
+#include "../volumeoptions/windows_plugin_gui.h"
 
 #ifdef _WIN32
 #pragma warning (disable : 4100)  /* Disable Unreferenced parameter warning */
 #include <Windows.h>
 #endif
+
+#include <thread>
+#include <iostream>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,12 +132,6 @@ int ts3plugin_init() {
 
 	printf("VO_PLUGIN_INT: App path: %s\nResources path: %s\nConfig path: %s\nPlugin path: %s\n", appPath, resourcesPath, configPath, pluginPath);
 
-#if 1
-	std::string sconfigPath(configPath);
-    g_voptions = std::make_unique<vo::VolumeOptions>(sconfigPath);
-    if (!g_voptions)
-        return 1;
-#else
     std::string sconfigPath(configPath);
 #ifdef _WIN32
     std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
@@ -149,10 +147,9 @@ int ts3plugin_init() {
     if (status == 0)
     {
         printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
-        // parsing error, report ts3 log
+        // TODO parsing error, report ts3 log
         ;
     }
-#endif
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable
@@ -195,12 +192,16 @@ int ts3plugin_offersConfigure() {
 	 * PLUGIN_OFFERS_CONFIGURE_NEW_THREAD - Plugin does implement ts3plugin_configure and requests to run this function in an own thread
 	 * PLUGIN_OFFERS_CONFIGURE_QT_THREAD  - Plugin does implement ts3plugin_configure and requests to run this function in the Qt GUI thread
 	 */
-	return PLUGIN_OFFERS_NO_CONFIGURE;  /* In this case ts3plugin_configure does not need to be implemented */
+    return PLUGIN_OFFERS_CONFIGURE_NEW_THREAD;  /* In this case ts3plugin_configure does not need to be implemented */
 }
 
 /* Plugin might offer a configuration window. If ts3plugin_offersConfigure returns 0, this function does not need to be implemented. */
 void ts3plugin_configure(void* handle, void* qParentWidget) {
     printf("VO_PLUGIN_INT: configure\n");
+
+    std::cout << std::this_thread::get_id() << std::endl;
+    int r = DialogThread(g_voptions.get(), handle);
+    printf("VO_PLUGIN_INT: DialogThread ret = %d\n", r);
 }
 
 /*

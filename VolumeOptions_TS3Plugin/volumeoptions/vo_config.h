@@ -38,6 +38,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 //TODO: do we really need this macro? was originaly for vista support but...
+/*
+    With VO_ENABLE_EVENTS callbacks from events will post calls (async) to the thread polling
+        from this class.
+    Without VO_ENABLE_EVENTS, events will be disabled (no callbacks from windows audio), thats means it wont
+        detect new sessions while monitor is active, and will lower volume of all applications
+        instead of only the active ones if configured to do so.
+*/
 #define VO_ENABLE_EVENTS
 
 

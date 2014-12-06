@@ -33,11 +33,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 #include <set>
+#include <chrono>
+#include <map>
 
 #include "../volumeoptions/vo_config.h"
 
 namespace vo {
 
+// SndVol Library individual Session settings
 struct session_settings
 {
     session_settings()
@@ -55,7 +58,7 @@ struct session_settings
 };
 
 
-// Library configurable settings
+// SndVol Library configurable settings
 struct monitor_settings
 {
     monitor_settings()
@@ -71,7 +74,7 @@ struct monitor_settings
     bool use_included_filter; // cant use both, blacklist or whitelist
     bool exclude_own_process;
 
-    std::map<std::wstring, session_settings> ses_individual_settings; // TODO
+   // std::map<std::wstring, session_settings> ses_individual_settings; // TODO
 
     session_settings ses_global_settings;
 };

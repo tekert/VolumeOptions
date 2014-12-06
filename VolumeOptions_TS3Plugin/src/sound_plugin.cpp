@@ -28,7 +28,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +55,8 @@ namespace vo
     Will load supplied settings directly
 */
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
+    : m_someone_enabled_is_talking(false)
+    , m_status(status::ENABLED)
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
@@ -63,19 +64,43 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
     common_init();
 }
 
-/*
-    Uses sconfigPath directory to search for "volumeoptions_plugin.ini" and load its settings
-        it will create and/or update the file if some options are missing.
+/* 
+    Basic constructor, will load default settings always. 
 */
-VolumeOptions::VolumeOptions(const std::string &sconfigPath)
+VolumeOptions::VolumeOptions()
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
 {
-    // TODO remove last "\" on windows or / on linux, normalize paths, use boost
-    std::string configFile(sconfigPath + "\\volumeoptions_plugin.ini");
+    common_init();
+}
+
+void VolumeOptions::common_init()
+{
+    // Create the audio monitor and send settings to parse, it will return parsed settings.
+    m_paudio_monitor = AudioMonitor::create();
+    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
+}
+
+VolumeOptions::~VolumeOptions()
+{
+    // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
+    m_paudio_monitor.reset(); // just a example: remember to delete all shared_ptr references.
+}
+
+/*
+    Tries to open configFile and set settings
+        it will create and/or update the file if some options are missing.
+*/
+int VolumeOptions::set_settings_from_file(const std::string &configFile, bool create_if_notfound)
+{
+    int ret = 1; // TODO: error codes
+
     std::fstream in(configFile, std::fstream::in);
     if (!in)
     {
+        if (!create_if_notfound)
+            return -1; // file not found.
+
         // Create config file if it doesnt exists
         in.open(configFile, std::fstream::out | std::ios::trunc);
         if (!in)
@@ -89,38 +114,15 @@ VolumeOptions::VolumeOptions(const std::string &sconfigPath)
     {
         // Load config
         // (monitor_settings are parsed when aplying to monitor).
-        int ok = parse_config(in, configFile); // 0 on error.
-        if (!ok)
-        {
-            printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
-            // TODO use TS3 client log, we will use default settings.
-        }
+        int ok = parse_config(configFile); // 0 on parse error.
+        if (!ok) ret = 0; // parse error.
     }
     in.close();
 
-    common_init();
-}
+    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 
-/* 
-    Basic constructor, will load default settings always. 
-*/
-VolumeOptions::VolumeOptions()
-{
-    common_init();
+    return ret;
 }
-
-void VolumeOptions::common_init()
-{
-    // Create the audio monitor and send settings to parse, it will return parsed settings.
-    m_paudio_monitor = AudioMonitor::create(m_vo_settings.monitor_settings);
-}
-
-VolumeOptions::~VolumeOptions()
-{
-    // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
-    m_paudio_monitor.reset(); // just a example: remember to delete all shared_ptr references.
-}
-
 
 void VolumeOptions::create_config_file(std::fstream& in)
 {
@@ -138,7 +140,7 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "\n"
         "[plugin]\n"
         "\n"
-        "# change volume when we talk ? default 1(true)\n"
+        "# ignore volume change when we talk ? default 1(true)\n"
         "exclude_own_client = 1\n"
         "\n"
         "\n"
@@ -191,10 +193,10 @@ void VolumeOptions::create_config_file(std::fstream& in)
 }
 
 /*
-    Simple template, creates the path with default value if it doesnt exists. else returns the value.
+    Simple template, creates the path key with default value if it doesnt exists. else returns the value.
 */
 template <typename T>
-T ini_put_get(boost::property_tree::ptree& pt, const std::string& path, const T& default_value)
+T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const T& default_value)
 {
     boost::optional<T> opt = pt.get_optional<T>(path.c_str());
     if (opt)
@@ -210,7 +212,14 @@ T ini_put_get(boost::property_tree::ptree& pt, const std::string& path, const T&
     return default_value;
 }
 
-int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
+/*
+    It will update the file if some options are missing.
+
+    Parsed settings will be saved.
+
+    returns 0 if file not found.
+*/
+int VolumeOptions::parse_config(const std::string& configFile)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -221,7 +230,7 @@ int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
 
     try
     {
-        read_ini(in, pt);
+        read_ini(configFile, pt);
     }
     catch (...) // TODO what throws?
     {
@@ -240,50 +249,44 @@ int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
 
 
-    int enabled = ini_put_get<int>(pt, "global.enabled", 1);
+    int enabled = ini_put_or_get<int>(pt, "global.enabled", 1);
     if (!enabled) m_status = status::DISABLED;
 
     // bool: do we exclude ourselfs?
-    m_vo_settings.exclude_own_client = ini_put_get<bool>(pt, "plugin.exclude_own_client", default_settings.exclude_own_client);
+    m_vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", default_settings.exclude_own_client);
 
     // AudioMonitor will validate these values when AudioMonitor::SetSettings is called
 
 
     // float: Global volume reduction
-    ses_settings.vol_reduction = ini_put_get<float>(pt, "AudioSessions.vol_reduction", def_ses_settings.vol_reduction);
+    ses_settings.vol_reduction = ini_put_or_get<float>(pt, "AudioSessions.vol_reduction", def_ses_settings.vol_reduction);
    
     // long long: Read a number using millisecond represetantion (long long) create milliseconds chrono type and assign it.
     std::chrono::milliseconds::rep _delay_milliseconds;
-    _delay_milliseconds = ini_put_get<std::chrono::milliseconds::rep>(pt, "AudioSessions.vol_up_delay", def_ses_settings.vol_up_delay.count());
-    std::chrono::milliseconds delay_milliseconds(_delay_milliseconds);
-    ses_settings.vol_up_delay = delay_milliseconds;
+    _delay_milliseconds = ini_put_or_get<std::chrono::milliseconds::rep>(pt, "AudioSessions.vol_up_delay", def_ses_settings.vol_up_delay.count());
+    ses_settings.vol_up_delay = std::chrono::milliseconds(_delay_milliseconds);
 
     // bool: Change vol as % or fixed
-    ses_settings.treat_vol_as_percentage = ini_put_get<bool>(pt, "AudioSessions.vol_as_percentage", def_ses_settings.treat_vol_as_percentage);
+    ses_settings.treat_vol_as_percentage = ini_put_or_get<bool>(pt, "AudioSessions.vol_as_percentage", def_ses_settings.treat_vol_as_percentage);
 
     // bool: Change vol only to active audio sessions? recommended
-    ses_settings.change_only_active_sessions = ini_put_get<bool>(pt, "AudioSessions.change_only_active_sessions", def_ses_settings.change_only_active_sessions);
+    ses_settings.change_only_active_sessions = ini_put_or_get<bool>(pt, "AudioSessions.change_only_active_sessions", def_ses_settings.change_only_active_sessions);
 
 
     // bool: Dont know why but... yep..  1 enable, 0 disable
-    mon_settings.exclude_own_process = ini_put_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
+    mon_settings.exclude_own_process = ini_put_or_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    std::string pid_list;
-    std::string process_list;
+    std::string included_pid_list, excluded_pid_list;
+    std::string included_process_list, excluded_process_list;
 
     // bool: Cant use both filters.
-    mon_settings.use_included_filter = ini_put_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
+    mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    if (mon_settings.use_included_filter)
-    {
-        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.included_pids", "");
-        process_list = ini_put_get<std::string>(pt, "AudioMonitor.included_process", "");
-    }
-    else
-    {
-        pid_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
-        process_list = ini_put_get<std::string>(pt, "AudioMonitor.excluded_process", "");
-    }
+    included_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", "");
+    included_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", "");
+
+    excluded_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
+    excluded_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", "");
             
     // Update ini file if some values were missing.
     try
@@ -297,35 +300,17 @@ int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
         assert(false);
     }
     
-    // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
-    boost::char_separator<char> sep(";");
-    boost::tokenizer<boost::char_separator<char>> processtokens(process_list, sep);
-    boost::tokenizer<boost::char_separator<char>> pidtokens(process_list, sep);
-    for (auto it = processtokens.begin(); it != processtokens.end(); ++it)
-    {
-        std::string pname(*it);
-        boost::algorithm::trim(pname);
-        if (mon_settings.use_included_filter)
-            mon_settings.included_process.insert(utf8_to_wstring(pname));
-        else
-            mon_settings.excluded_process.insert(utf8_to_wstring(pname));
-    }
-    for (auto it = pidtokens.begin(); it != pidtokens.end(); ++it)
-    {
-        try
-        {
-            std::string spid(*it);
-            boost::algorithm::trim(spid);
-            if (mon_settings.use_included_filter)
-                mon_settings.included_pids.insert(std::stoi(spid));
-            else
-                mon_settings.excluded_pids.insert(std::stoi(spid));
-        }
-        catch (std::invalid_argument) // std::stoi TODO: return something and report it to log
-        { }
-        catch (std::out_of_range) // std::stoi TODO: return something and report it to log
-        { }
-    }
+    // clear to overwrite current process values
+    mon_settings.included_process.clear();
+    mon_settings.excluded_process.clear();
+    parse_process_list(included_process_list, mon_settings.included_process);
+    parse_process_list(excluded_process_list, mon_settings.excluded_process);
+
+    // clear to overwrite current pid values
+    mon_settings.included_pids.clear();
+    mon_settings.excluded_pids.clear();
+    parse_pid_list(included_pid_list, mon_settings.included_pids);
+    parse_pid_list(included_process_list, mon_settings.excluded_pids);
 
 
 #ifdef _DEBUG
@@ -342,12 +327,65 @@ int VolumeOptions::parse_config(std::fstream& in, const std::string& configFile)
     return 1;
 }
 
+void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s)
+{
+    // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
+    typedef boost::tokenizer<boost::char_separator<wchar_t>, std::wstring::const_iterator, std::wstring> wtokenizer;
+    boost::char_separator<wchar_t> sep(L";");
+    wtokenizer processtokens(process_list, sep);
+    for (auto it = processtokens.begin(); it != processtokens.end(); ++it)
+    {
+        std::wstring pname(*it);
+        boost::algorithm::trim(pname);
+
+        dwprintf(L"parse_process_list: insert: %s\n\n", pname.c_str());
+        set_s.insert(pname);
+    }
+}
+
+void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s)
+{
+    // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
+    boost::char_separator<char> sep(";");
+    boost::tokenizer<boost::char_separator<char>> processtokens(process_list, sep);
+    for (auto it = processtokens.begin(); it != processtokens.end(); ++it)
+    {
+        std::string pname(*it);
+        boost::algorithm::trim(pname);
+
+        dprintf("parse_process_list: insert: %s\n\n", pname.c_str());
+        set_s.insert(utf8_to_wstring(pname));
+    }
+}
+
+void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l)
+{
+    boost::char_separator<char> sep(";");
+    boost::tokenizer<boost::char_separator<char>> pidtokens(pid_list, sep);
+
+    for (auto it = pidtokens.begin(); it != pidtokens.end(); ++it)
+    {
+        try
+        {
+            std::string spid(*it);
+            boost::algorithm::trim(spid);
+
+            dprintf("parse_pid_list: insert: %s\n\n", spid.c_str());
+            set_l.insert(std::stoi(spid));
+        }
+        catch (std::invalid_argument) {} // std::stoi TODO: return something and report it to log
+        catch (std::out_of_range) {} // std::stoi TODO: return something and report it to log
+    }
+}
+
 void VolumeOptions::set_settings(vo::volume_options_settings& settings)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // monitor_settings will be parsed, applied and updated with actual settings applied.
     m_paudio_monitor->SetSettings(settings.monitor_settings);
+
+    m_vo_settings = settings;
 }
 
 /*
@@ -527,7 +565,7 @@ inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(cons
     const channelID_t& nonunique_channelID) const
 {
     // combine unique serverID with nonunique_channelid as a string to make a uniqueChannelID (somewhat)
-    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID));
+    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID)); // Profile got zone. TODO fix
 }
 
 /*
@@ -664,7 +702,7 @@ int VolumeOptions::apply_status()
         {
             if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
             {
-                printf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
+                dprintf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
                 r = m_paudio_monitor->Pause();
                 //m_paudio_monitor->Stop();
             }
@@ -680,7 +718,7 @@ int VolumeOptions::apply_status()
             {
                 if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
                 {
-                    printf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
+                    dprintf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
                     r = m_paudio_monitor->Start();
                 }
             }
@@ -716,7 +754,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // We mark channelIDs as unique combining its virtual server ID.
-    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID));
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID)); // Profiler hot zone 9%
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
     // TODO if user ignores himself well get incorrect count, fix it. revise this.
@@ -770,7 +808,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
         uniqueChannelID_t channelID_origin = uniqueChannelID;
         status channelID_origin_status;
         if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
-        for (auto it_status : m_channels_with_activity)
+        for (auto it_status : m_channels_with_activity) // Profiler hot zone 7%
         {
             channelID_origin_status = it_status.first;
             // low overhead, usualy a client is in as many channels as servers.
