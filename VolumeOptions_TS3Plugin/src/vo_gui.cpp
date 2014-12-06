@@ -11,6 +11,7 @@
 #include "../resources/gui_resource.h"
 
 #include <string>
+#include <unordered_map> // to save opened windows
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
@@ -20,6 +21,35 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 // 0 for modal, 1 for modeless.
 #define VO_MODELESS_DIALOG_GUI 1
+
+// Saved opened HWND windows, to easily close them
+struct DialogID
+{
+    HWND hDlg;
+    DWORD thread_id;
+};
+static std::unordered_map<DWORD, DialogID> g_opened_hwnds;
+void SaveOpenedDialog(HWND handle)
+{
+    DialogID id;
+    id.hDlg = handle;
+    id.thread_id = GetCurrentThreadId();
+    g_opened_hwnds[id.thread_id] = id;
+}
+void DeleteSavedDialog(HWND handle)
+{
+    DialogID id;
+    id.hDlg = handle;
+    id.thread_id = GetCurrentThreadId();
+    g_opened_hwnds.erase(id.thread_id);
+}
+void DestroyAllOpenedDialogs()
+{
+    for (auto h : g_opened_hwnds)
+        PostThreadMessage(h.second.thread_id, WM_QUIT, 0, 0);
+
+    g_opened_hwnds.clear();
+}
 
 // 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
 HMODULE GetCurrentModule()
@@ -536,6 +566,8 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         InitControlValues(hDlg, vo_settings);
         UpdatePercentageSigns(hDlg);
 
+        SaveOpenedDialog(hDlg);
+
         return TRUE;
     }
     break;
@@ -552,6 +584,7 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_DESTROY:
+        DeleteSavedDialog(hDlg);
         PostQuitMessage(0);
         return TRUE;
 
@@ -612,7 +645,8 @@ int DialogThread(vo::VolumeOptions* pvo, void* vparent)
         if (getret == -1)
             break;
 
-        if (!IsDialogMessage(hDlg, &msg)) {
+        if (!IsDialogMessage(hDlg, &msg)) 
+        {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }

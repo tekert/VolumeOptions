@@ -176,6 +176,7 @@ void ts3plugin_shutdown() {
 	 * If your plugin implements a settings dialog, it must be closed and deleted here, else the
 	 * TeamSpeak client will most likely crash (DLL removed but dialog from DLL code still open).
 	 */
+    DestroyAllOpenedDialogs(); // will send Postquit, i hope ts3 will wait for their threads to exit.
 
 	/* Free pluginID if we registered it */
 	if(pluginID) {

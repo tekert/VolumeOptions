@@ -6,6 +6,10 @@
 
 // parent can be null
 int DialogThread(vo::VolumeOptions* vo, void* parent = nullptr);
+
+void DestroyAllOpenedDialogs();
+
+
 int DialogThread2();
 
 

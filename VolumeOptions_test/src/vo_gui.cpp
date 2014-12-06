@@ -11,7 +11,7 @@
 #include "../resources/gui_resource.h"
 
 #include <string>
-#include <unordered_set> // to save opened windows
+#include <unordered_map> // to save opened windows
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
@@ -23,20 +23,30 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define VO_MODELESS_DIALOG_GUI 1
 
 // Saved opened HWND windows, to easily close them
-static std::unordered_set<HWND> g_opened_hwnds;
+struct DialogID
+{
+    HWND hDlg;
+    DWORD thread_id;
+};
+static std::unordered_map<DWORD, DialogID> g_opened_hwnds;
 void SaveOpenedDialog(HWND handle)
 {
-    g_opened_hwnds.insert(handle);
+    DialogID id;
+    id.hDlg = handle;
+    id.thread_id = GetCurrentThreadId();
+    g_opened_hwnds[id.thread_id] = id;
 }
 void DeleteSavedDialog(HWND handle)
 {
-    g_opened_hwnds.erase(handle);
+    DialogID id;
+    id.hDlg = handle;
+    id.thread_id = GetCurrentThreadId();
+    g_opened_hwnds.erase(id.thread_id);
 }
-
 void DestroyAllOpenedDialogs()
 {
     for (auto h : g_opened_hwnds)
-        SendMessage(h, WM_QUIT, 0, 0);
+        PostThreadMessage(h.second.thread_id, WM_QUIT, 0, 0);
 
     g_opened_hwnds.clear();
 }
