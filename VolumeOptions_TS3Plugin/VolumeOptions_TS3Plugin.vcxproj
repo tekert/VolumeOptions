@@ -156,7 +156,7 @@
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\ts3plugin_handler.cpp" />
+    <ClCompile Include="src\plugin.cpp" />
     <ClCompile Include="src\audiomonitor_wasapi.cpp" />
     <ClCompile Include="src\vo_ts3plugin.cpp" />
     <ClCompile Include="src\utilities.cpp" />
@@ -172,7 +172,7 @@
     <ClInclude Include="ts3client\public_errors_rare.h" />
     <ClInclude Include="ts3client\public_rare_definitions.h" />
     <ClInclude Include="ts3client\ts3_functions.h" />
-    <ClInclude Include="volumeoptions\ts3plugin_handler.h" />
+    <ClInclude Include="volumeoptions\plugin.h" />
     <ClInclude Include="volumeoptions\vo_ts3plugin.h" />
     <ClInclude Include="volumeoptions\audiomonitor_wasapi.h" />
     <ClInclude Include="volumeoptions\utilities.h" />

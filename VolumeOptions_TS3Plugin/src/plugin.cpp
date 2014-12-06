@@ -24,7 +24,7 @@
 #include "../ts3client/public_definitions.h"
 #include "../ts3client/public_rare_definitions.h"
 #include "../ts3client/ts3_functions.h"
-#include "../volumeoptions/ts3plugin_handler.h"
+#include "../volumeoptions/plugin.h"
 #include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;

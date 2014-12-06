@@ -140,6 +140,8 @@ private:
     float m_default_volume; // always marks user default volume of this SID group session
     bool m_is_volume_at_default;  // if true, session volume is at user default volume
 
+    bool m_excluded_flag;
+
     DWORD m_pid;
     std::wstring m_sid;
     std::wstring m_siid;

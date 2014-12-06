@@ -662,6 +662,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     , m_pSimpleAudioVolume(NULL)
     , m_pSessionControl2(NULL)
     , m_is_volume_at_default(true)
+    , m_excluded_flag(false)
 {
     if (pSessionControl == NULL)
     {
@@ -920,6 +921,9 @@ HRESULT AudioSession::ApplyVolumeSettings()
         else
             change_vol = false;
     }
+
+    if (m_excluded_flag)
+        change_vol = false;
 
     // if AudioSession::is_volume_at_default is true, the session is at user default volume.
     // if AudioMonitor::m_auto_change_volume_flag is true, auto volume reduction is activated, else disabled.
@@ -1655,18 +1659,21 @@ void AudioMonitor::ApplySettings()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    // Search current saved sessions and remove based on settings.
+    // Search current saved sessions and set exclude flag based on monitor settings.
     for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end();)
     {
         bool excluded = isSessionExcluded(it->second->getPID(), it->second->getSID());
         if (excluded)
         {
-            dwprintf(L"\nRemoving PID[%d] due to new config...\n", it->second->getPID());
+            dwprintf(L"\nExluding PID[%d] due to new config...\n", it->second->getPID());
             m_pending_restores.erase(it->second.get());
-            it = m_saved_sessions.erase(it);
+            it->second->m_excluded_flag = true;
+            it->second->RestoreVolume(AudioSession::resume_t::NO_DELAY);
         }
         else
-            it++;
+            it->second->m_excluded_flag = false;
+
+        it++;
     }
 
     if (m_auto_change_volume_flag)
@@ -1772,9 +1779,9 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
     ws_sid = _sid;
     CoTaskMemFree(_sid);
 
-    bool excluded = isSessionExcluded(pid, ws_sid);
+    bool is_excluded = isSessionExcluded(pid, ws_sid);
 
-    if ((pSessionControl2->IsSystemSoundsSession() == S_FALSE) && !excluded)
+    if ((pSessionControl2->IsSystemSoundsSession() == S_FALSE))
     {
         dwprintf(L"\n---Saving New Session: PID[%d]:\n", pid);
 
@@ -1832,8 +1839,12 @@ HRESULT AudioMonitor::SaveSession(IAudioSessionControl* pSessionControl, const b
             std::shared_ptr<AudioSession> pAudioSession(new AudioSession(pSessionControl, this->shared_from_this(),
                 last_sid_volume_fix));
 
+            // if created succesfuly, finish updating status and save it.
             if (!FAILED(pAudioSession->GetStatus()))
             {
+                if (is_excluded)
+                    pAudioSession->m_excluded_flag = true;
+
 #ifdef VO_ENABLE_EVENTS
                 pAudioSession->InitEvents();
 #endif

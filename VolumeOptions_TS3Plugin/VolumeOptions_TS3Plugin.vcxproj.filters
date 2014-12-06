@@ -21,9 +21,6 @@
     <ClCompile Include="src\utilities.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\ts3plugin_handler.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\audiomonitor_wasapi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -31,6 +28,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\vo_gui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\plugin.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -71,9 +71,6 @@
     <ClInclude Include="resources\gui_resource.h">
       <Filter>Resource Files</Filter>
     </ClInclude>
-    <ClInclude Include="volumeoptions\ts3plugin_handler.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="volumeoptions\vo_gui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -84,6 +81,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\vo_ts3plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\plugin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
