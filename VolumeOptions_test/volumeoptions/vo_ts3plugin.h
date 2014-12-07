@@ -131,7 +131,7 @@ private:
     mutable status m_status;
     bool m_someone_enabled_is_talking;
 
-    std::string m_configfile_name;
+    std::string m_config_filename;
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;

@@ -57,7 +57,6 @@ namespace vo
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
-    , m_configfile_name(".")
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
@@ -71,7 +70,6 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
 VolumeOptions::VolumeOptions()
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
-    , m_configfile_name(".")
 {
     common_init();
 }
@@ -88,8 +86,8 @@ void VolumeOptions::common_init()
 VolumeOptions::~VolumeOptions()
 {
     // Save settings on exit.
-    if (!m_configfile_name.empty())
-        save_settings_to_file(m_configfile_name);
+    if (!m_config_filename.empty())
+        save_settings_to_file(m_config_filename);
 
     // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
     m_paudio_monitor.reset();
@@ -97,11 +95,14 @@ VolumeOptions::~VolumeOptions()
     dprintf("\nVolumeOptions destroyed...\n\n");
 }
 
+/*
+    Sets VolumeOptions config file location, absolute path to file
+*/
 void VolumeOptions::set_config_file(const std::string &configFile)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    m_configfile_name = configFile;
+    m_config_filename = configFile;
 }
 
 /*

@@ -2202,8 +2202,7 @@ vo::monitor_settings AudioMonitor::GetSettings()
 /*
     Parses new config and applies it.
 
-    If parameters are incorrect we try to correct them.
-    Finally parameter settings will be modified with actual settings applied.
+    Settings will be modified when parsed if some values where incorrect.
 */
 void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 {

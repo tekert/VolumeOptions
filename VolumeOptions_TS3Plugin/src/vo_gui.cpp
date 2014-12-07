@@ -504,20 +504,18 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
     // Parse list and insert it to monitor settings sets
     mon_settings.included_process.clear();
     mon_settings.excluded_process.clear();
-    if (mon_settings.use_included_filter)
-    {
-        memset(process_names, 0, LIST_MAX_SIZE);
-        GetDlgItemText(hDlg, IDC_EDIT_INCLUDEFILTER, process_names, LIST_MAX_SIZE);
-        vo::parse_process_list(process_names, mon_settings.included_process);
-        dwprintf(L"excluded process_names: %s\n\n", process_names);
-    }
-    if (!mon_settings.use_included_filter)
-    {
-        memset(process_names, 0, LIST_MAX_SIZE);
-        GetDlgItemText(hDlg, IDC_EDIT_EXCLUDEFILTER, process_names, LIST_MAX_SIZE);
-        vo::parse_process_list(process_names, mon_settings.excluded_process);
-        dwprintf(L"included process_names: %s\n\n", process_names);
-    }
+
+    // included list
+    memset(process_names, 0, LIST_MAX_SIZE);
+    GetDlgItemText(hDlg, IDC_EDIT_INCLUDEFILTER, process_names, LIST_MAX_SIZE);
+    vo::parse_process_list(process_names, mon_settings.included_process);
+    dwprintf(L"excluded process_names: %s\n\n", process_names);
+
+    // excluded list
+    memset(process_names, 0, LIST_MAX_SIZE);
+    GetDlgItemText(hDlg, IDC_EDIT_EXCLUDEFILTER, process_names, LIST_MAX_SIZE);
+    vo::parse_process_list(process_names, mon_settings.excluded_process);
+    dwprintf(L"included process_names: %s\n\n", process_names);
 
 }
 
