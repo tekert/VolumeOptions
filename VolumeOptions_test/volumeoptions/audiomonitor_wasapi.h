@@ -235,7 +235,7 @@ private:
     void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // Not used
     void DeleteExpiredSessions(boost::system::error_code const& e,
         std::shared_ptr<boost::asio::steady_timer> timer);
-    void ApplySettings();
+    void ApplyMonitorSettings();
     bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
 
     void RemoveDeviceID(const std::wstring& device_id);

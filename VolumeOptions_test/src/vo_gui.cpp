@@ -6,7 +6,7 @@
 
 #include <windows.h>
 #include <minmax.h> // for max
-#include <CommCtrl.h>
+#include <commctrl.h>
 #include <tchar.h>
 #include "../resources/gui_resource.h"
 
@@ -84,8 +84,7 @@ class CActivationContext
 
 public:
     CActivationContext() : m_hActivationContext(INVALID_HANDLE_VALUE)
-    {
-    }
+    {}
 
     VOID Set(HANDLE hActCtx)
     {
@@ -139,7 +138,7 @@ public:
     }
 };
 
-CActivationContext g_context; // global, for loaded dlls isolation.
+CActivationContext g_context; // global, to isolate this com object if loaded from dll.
 
 // http://msdn.microsoft.com/en-us/library/aa375197.aspx
 // Modified to use our auto linked manifest
@@ -153,8 +152,8 @@ void InitIsolationAware(HINSTANCE hInst)
     hActCtx = CreateActCtx(&actctx);
     g_context.Set(hActCtx);
     ReleaseActCtx(hActCtx);
-    // The static destructor for s_GlobalContext destroys the
-    // activation context on component unload.
+    // The static destructor for g_context destroys the
+    // activation context on component (dll, module, etc) unload.
 }
 
 // Description:
@@ -201,7 +200,7 @@ HWND CreateToolTip(int toolID, HWND hDlg, PTSTR pszText)
     SendMessage(hwndTip, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
 
     // Fix ugly windows tooltip time settings. (wish every software did this)
-    WORD milliseconds = 0x7FFF;
+    WORD milliseconds = 0x7FFF; // its signed.. what? ok windows.
     DWORD lParam = milliseconds;
     SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, lParam);
     SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_INITIAL, 0);
@@ -210,7 +209,7 @@ HWND CreateToolTip(int toolID, HWND hDlg, PTSTR pszText)
     // Enable multiline tolltip
     SendMessage(hwndTip, TTM_SETMAXTIPWIDTH, 0, MAXINT);
 
-    return hwndTip;
+    return hwndTip; 
 }
 
 /*
@@ -266,7 +265,8 @@ void SetControlTooltips(HWND hDlg)
         L"Default: Checked (true) (recommended)");
 
     CreateToolTip(IDC_EDIT_DELAYTIME, hDlg,
-        L"Time in milliseconds to delay sessions volume restore when no one is talking.\r\n"
+        L"Time in milliseconds to delay sessions volume restore\r\n"
+        L" when no one is talking.\r\n"
         L"Default: 400ms");
 
     CreateToolTip(IDC_CHECK_EXCLUDEOWNPROCESS, hDlg,
@@ -274,10 +274,10 @@ void SetControlTooltips(HWND hDlg)
         L"Default: Checked (true)");
 
     CreateToolTip(IDC_RADIO_EXCLUDEFILTER, hDlg,
-        L"Excluded process and Included process takes a list of executable names or paths or SIIDs\r\n"
+        L"Excluded process and Included process takes a list of executable names, paths or SIIDs\r\n"
         L"\r\n"
         L"Format: A list of process names separated by \";\"\r\n"
-        L"  in case of process names, can be anything, from full path to process name.\r\n"
+        L"  in case of process names, can be anything, from full path to process names.\r\n"
         L"\r\n"
         L"Example:\r\n"
         L"  process1.exe;X:\\this\\path\\to\\my\\program; _player;  \\this\\directory\r\n");
@@ -285,8 +285,70 @@ void SetControlTooltips(HWND hDlg)
     CreateToolTip(IDC_CHECK_VOLUMEASPERCENTAGE, hDlg,
         L"Cheked: Take volume value as %.\r\n"
         L"Uncheked: Take volume level as fixed value.\r\n"
-        L"Default: Checked (%)");
+        L"Default: Checked (%)\r\n"
+        L"\r\n"
+        L"Care with fixed values, it can actually increase volume if\r\n"
+        L" some apps have volume level lower than max.");
 
+}
+
+/*
+    Updates the marker for current position of the volume reduction track bar
+*/
+void UpdateSliderStaticLabel(HWND hDlg, HWND hVolSlider)
+{
+    // Update slider current value
+    int value = static_cast<int>(SendMessage(hVolSlider, TBM_GETPOS, 0, 0));
+    std::wstring ws_value = std::to_wstring(value);
+    SetDlgItemText(hDlg, IDC_STATIC_SLIDER_CURRENTVAL, ws_value.c_str());
+
+    HWND hStaticWarnNote = GetDlgItem(hDlg, IDC_STATIC_NOTE_WARNING_VOL);
+    if (value < 0)
+    {
+        ShowWindow(hStaticWarnNote, SW_SHOW);
+    }
+    else
+    {
+        ShowWindow(hStaticWarnNote, SW_HIDE);
+    }
+}
+
+/*
+    Updates and Switch all the controls associated with the volume trackbar
+        if it tracks percentage or fixed values.
+*/
+void UpdateSliderControls(HWND hDlg)
+{
+    HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
+
+    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE))
+    {
+        SetDlgItemText(hDlg, IDC_STATIC_SLIDERMIN, L"-100%");
+        SetDlgItemText(hDlg, IDC_STATIC_SLIDERMAX, L"100%");
+
+        // Set range
+        DWORD range = MAKELONG(-100, 100);
+        SendMessage(hVolSlider, TBM_SETRANGE, TRUE, range);
+
+        SendMessage(hVolSlider, TBM_SETTIC, 0, 0); // tick at 0
+    }
+    else
+    {
+        SetDlgItemText(hDlg, IDC_STATIC_SLIDERMIN, L"0 ");
+        SetDlgItemText(hDlg, IDC_STATIC_SLIDERMAX, L"100 ");
+
+        SendMessage(hVolSlider, TBM_CLEARTICS, FALSE, 0);
+
+       // LONG style = GetWindowLong(hVolSlider, GWL_STYLE);
+     //   style = (style & ~TBS_LEFT) | TBS_RIGHT | TBS_REVERSED | TBS_DOWNISLEFT;
+     //   SetWindowLong(hVolSlider, GWL_STYLE, style);
+
+        // Set range (we will flip)
+        DWORD range = MAKELONG(0, 100);
+        SendMessage(hVolSlider, TBM_SETRANGE, TRUE, range);
+    }
+
+    UpdateSliderStaticLabel(hDlg, hVolSlider);
 }
 
 /*
@@ -351,9 +413,11 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     else
         CheckDlgButton(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE, BST_UNCHECKED);
 
-    unsigned int slider_level = unsigned int(ses_settings.vol_reduction * 100);
+    int slider_level = int(ses_settings.vol_reduction * 100);
     HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
     SendMessage(hVolSlider, TBM_SETPOS, TRUE, slider_level);
+
+    UpdateSliderControls(hDlg);
 
     if (ses_settings.change_only_active_sessions)
         CheckDlgButton(hDlg, IDC_CHECK_APPLYONLYACTIVE, BST_CHECKED);
@@ -398,7 +462,7 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
     // Get volume level from slider value
     HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
-    UINT value = static_cast<UINT>(SendMessage(hVolSlider, TBM_GETPOS, 0, 0));
+    int value = static_cast<int>(SendMessage(hVolSlider, TBM_GETPOS, 0, 0));
     float vol_value = static_cast<float>(value) / 100;
     ses_settings.vol_reduction = vol_value;
     wprintf(L"Trackbar pos = %f \n", ses_settings.vol_reduction);
@@ -419,6 +483,7 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
 
     // ------- Retrieve Monitor settings group
+
     const UINT LIST_MAX_SIZE = 4096;
     wchar_t process_names[LIST_MAX_SIZE] = { 0 };
 
@@ -456,23 +521,7 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
 }
 
-void UpdatePercentageSigns(HWND hDlg)
-{
-    HWND per0 = GetDlgItem(hDlg, IDC_STATIC_PER0);
-    HWND per100 = GetDlgItem(hDlg, IDC_STATIC_PER100);
-    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE))
-    {
-        ShowWindow(per0, SW_SHOW);
-        ShowWindow(per100, SW_SHOW);
-    }
-    else
-    {
-        ShowWindow(per0, SW_HIDE);
-        ShowWindow(per100, SW_HIDE);
-    }
-}
-
-INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK VODialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     static vo::VolumeOptions* pvo = nullptr;
     static vo::volume_options_settings vo_settings;
@@ -508,7 +557,7 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (HIWORD(wParam) == BN_CLICKED)
             {
-                UpdatePercentageSigns(hDlg);
+                UpdateSliderControls(hDlg);
             }
         }
             return TRUE;
@@ -541,9 +590,32 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
     }
     break;
 
+    case WM_CTLCOLORSTATIC:
+    {
+        // Paint warning note shown when vol reduction is negative
+        if ((HWND)lParam == GetDlgItem(hDlg, IDC_STATIC_NOTE_WARNING_VOL))
+        {
+            SetTextColor((HDC)wParam, RGB(255, 52, 52));
+            SetBkMode((HDC)wParam, TRANSPARENT);
+
+            return (INT_PTR)GetSysColorBrush(COLOR_MENU);
+        }
+    }
+    break;
+
     case WM_VSCROLL:
+    {
         switch (LOWORD(wParam))
         {
+        case SB_ENDSCROLL:
+        case SB_LEFT:
+        case SB_RIGHT:
+        case SB_LINELEFT:
+        case SB_LINERIGHT:
+        case SB_PAGELEFT:
+        case SB_PAGERIGHT:
+            dwprintf(L"what lo=%d hi=%d\n", LOWORD(wParam), HIWORD(wParam));
+            break;
         case SB_THUMBPOSITION:
             dwprintf(L"pos level = %d\n", HIWORD(wParam));
             break;
@@ -552,9 +624,17 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             dwprintf(L"track level = %d\n", HIWORD(wParam));
             break;
 
+        default:
+            dwprintf(L"no handled lo=%d hi=%d\n", LOWORD(wParam), HIWORD(wParam));
         }
-        dwprintf(L"what lo=%d hi=%d\n", LOWORD(wParam), HIWORD(wParam));
+
+        // NOTE: slider tooltips take too much cpu, windows..
+        // HIWORD(wParam) doesnt track the value if user just clicks the slider, so.. get pos.
+        UpdateSliderStaticLabel(hDlg, (HWND)lParam);
+
         return 0;
+    }
+    break;
 
     case  WM_INITDIALOG:
     {
@@ -564,7 +644,6 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         CenterWindow(hDlg);
 
         InitControlValues(hDlg, vo_settings);
-        UpdatePercentageSigns(hDlg);
 
         SaveOpenedDialog(hDlg);
 
@@ -628,7 +707,7 @@ int DialogThread(vo::VolumeOptions* pvo, void* vparent)
     BOOL getret;
 
     dprintf("Creating Modeless dialog box:\n");
-    hDlg = CreateDialogParam(hInst, MAKEINTRESOURCE(IDD_VO_CONFIG_DIALOG), parent, DialogProc, LPARAM(pvo));
+    hDlg = CreateDialogParam(hInst, MAKEINTRESOURCE(IDD_VO_CONFIG_DIALOG), parent, VODialogProc, LPARAM(pvo));
     if (hDlg == NULL)
     {
         DWORD err = GetLastError();

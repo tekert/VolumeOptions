@@ -932,19 +932,19 @@ HRESULT AudioSession::ApplyVolumeSettings()
         float set_vol;
         if (ses_setting.treat_vol_as_percentage)
         {
-            if (current_vol_reduction <= 1.0f)
-                set_vol = m_default_volume * (1.0f - current_vol_reduction);
-            else
-            {
-                // rises volume % if vol_reduction % is greater than 1.0.
-                set_vol = m_default_volume * current_vol_reduction;
-                if (set_vol > 1.0f) set_vol = 1.0f;
-            }
+            assert((current_vol_reduction >= -1.0f) && (current_vol_reduction <= 1.0f));
+
+            // if negative, will actually increase volume! (limit -1.0f to 1.0f)
+            if (current_vol_reduction >= 0.0f)
+                set_vol = m_default_volume * (1.0f - current_vol_reduction); // %
+
+            if (set_vol > 1.0f) set_vol = 1.0f;
         }
         else
-            set_vol = current_vol_reduction;
-
-        if (set_vol)
+        {
+            assert((current_vol_reduction >= 0.0f) && (current_vol_reduction <= 1.0f));
+            set_vol = 1.0f - current_vol_reduction; // fixed (limit 0.0f to 1.0f)
+        }
 
         ChangeVolume(set_vol);
         m_is_volume_at_default = false; // mark that the session is NOT at default state.
@@ -1655,25 +1655,22 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 /*
     Applies current parsed saved settings on all class elements.
 */
-void AudioMonitor::ApplySettings()
+void AudioMonitor::ApplyMonitorSettings()
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // Search current saved sessions and set exclude flag based on monitor settings.
-    for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end();)
+    for (auto it = m_saved_sessions.begin(); it != m_saved_sessions.end(); ++it)
     {
         bool excluded = isSessionExcluded(it->second->getPID(), it->second->getSID());
         if (excluded)
         {
             dwprintf(L"\nExluding PID[%d] due to new config...\n", it->second->getPID());
-            m_pending_restores.erase(it->second.get());
             it->second->m_excluded_flag = true;
             it->second->RestoreVolume(AudioSession::resume_t::NO_DELAY);
         }
         else
             it->second->m_excluded_flag = false;
-
-        it++;
     }
 
     if (m_auto_change_volume_flag)
@@ -2235,14 +2232,22 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
             std::transform(n.begin(), n.end(), n.begin(), ::tolower);
         }
 
-
-        if (m_settings.ses_global_settings.vol_reduction < 0)
-            m_settings.ses_global_settings.vol_reduction = 0.0f;
-
+        // If volume is in %, can be positive or negative.
+        //  example if vol reduction % is -50%, will actually increase volume by 50%!
+        // max limit for both is 1.0f
+        if (m_settings.ses_global_settings.vol_reduction > 1.0f)
+            m_settings.ses_global_settings.vol_reduction = 1.0f;
+        if (m_settings.ses_global_settings.treat_vol_as_percentage)
+        {
+            // limit -1.0f to 1.0f
+            if (m_settings.ses_global_settings.vol_reduction < -1.0f)
+                m_settings.ses_global_settings.vol_reduction = -1.0f;
+        }
         if (!m_settings.ses_global_settings.treat_vol_as_percentage)
         {
-            if (m_settings.ses_global_settings.vol_reduction > 1.0f)
-                m_settings.ses_global_settings.vol_reduction = 1.0f;
+            // limit 0.0f to 1.0f
+            if (m_settings.ses_global_settings.vol_reduction < 0.0f)
+                m_settings.ses_global_settings.vol_reduction = 0.0f;
         }
 
         if (m_settings.ses_global_settings.vol_up_delay.count() < 0)
@@ -2256,7 +2261,7 @@ void AudioMonitor::SetSettings(vo::monitor_settings& settings)
 
 
 
-        ApplySettings();
+        ApplyMonitorSettings();
 
         // return applied settings
         settings = m_settings;

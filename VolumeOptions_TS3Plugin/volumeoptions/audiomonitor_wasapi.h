@@ -140,6 +140,8 @@ private:
     float m_default_volume; // always marks user default volume of this SID group session
     bool m_is_volume_at_default;  // if true, session volume is at user default volume
 
+    bool m_excluded_flag;
+
     DWORD m_pid;
     std::wstring m_sid;
     std::wstring m_siid;
@@ -233,7 +235,7 @@ private:
     void DeleteSession(std::shared_ptr<AudioSession> spAudioSession); // Not used
     void DeleteExpiredSessions(boost::system::error_code const& e,
         std::shared_ptr<boost::asio::steady_timer> timer);
-    void ApplySettings();
+    void ApplyMonitorSettings();
     bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
 
     void RemoveDeviceID(const std::wstring& device_id);
