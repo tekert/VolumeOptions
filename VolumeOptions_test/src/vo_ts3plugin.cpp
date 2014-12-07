@@ -57,6 +57,7 @@ namespace vo
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
+    , m_configfile_name(".")
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
@@ -70,6 +71,7 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
 VolumeOptions::VolumeOptions()
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
+    , m_configfile_name(".")
 {
     common_init();
 }
@@ -77,14 +79,29 @@ VolumeOptions::VolumeOptions()
 void VolumeOptions::common_init()
 {
     // Create the audio monitor and send settings to parse, it will return parsed settings.
-    m_paudio_monitor = AudioMonitor::create();
+    if (!m_paudio_monitor)
+        m_paudio_monitor = AudioMonitor::create();
+
     m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 VolumeOptions::~VolumeOptions()
 {
+    // Save settings on exit.
+    if (!m_configfile_name.empty())
+        save_settings_to_file(m_configfile_name);
+
     // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
-    m_paudio_monitor.reset(); // just a example: remember to delete all shared_ptr references.
+    m_paudio_monitor.reset();
+
+    dprintf("\nVolumeOptions destroyed...\n\n");
+}
+
+void VolumeOptions::set_config_file(const std::string &configFile)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    m_configfile_name = configFile;
 }
 
 /*
@@ -93,6 +110,8 @@ VolumeOptions::~VolumeOptions()
 */
 int VolumeOptions::set_settings_from_file(const std::string &configFile, bool create_if_notfound)
 {
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
     int ret = 1; // TODO: error codes
 
     std::fstream in(configFile, std::fstream::in);
@@ -109,13 +128,32 @@ int VolumeOptions::set_settings_from_file(const std::string &configFile, bool cr
         {
             create_config_file(in);
         }
+
+        set_config_file(configFile);
     }
     else
     {
-        // Load config
-        // (monitor_settings are parsed when aplying to monitor).
-        int ok = parse_config(configFile); // 0 on parse error.
-        if (!ok) ret = 0; // parse error.
+        try
+        {
+            boost::property_tree::ptree pt;
+            // Load config
+            boost::property_tree::read_ini(configFile, pt);
+            boost::property_tree::ptree orig_pt = pt;
+
+            // will update ptree if some values where missing
+            m_vo_settings = ptree_to_settings(pt);
+
+            // Update ini file if some values were missing.
+            if (orig_pt != pt) // NOTE: this comparison can cause warnings depending on included headers
+                write_ini(configFile, pt);
+
+            set_config_file(configFile);
+        }
+        catch (boost::property_tree::ini_parser::ini_parser_error)
+        {
+            assert(false);
+            ret = 0; // parse error. // TODO: error codes boost.
+        }
     }
     in.close();
 
@@ -189,14 +227,45 @@ void VolumeOptions::create_config_file(std::fstream& in)
         "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
         "#volume_list = mymusic.exe:0.4; firefox.exe:0.8\n";
 
+}
 
+void VolumeOptions::save_settings_to_file(const std::string &configFile) const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // Converts current class settings to ptree
+    boost::property_tree::ptree pt = settings_to_ptree(m_vo_settings);
+
+    try
+    {
+        boost::property_tree::write_ini(configFile, pt);
+    }
+    catch (boost::property_tree::ini_parser::ini_parser_error)
+    {
+        assert(false);
+    }
+}
+
+// Shortcuts (to be more readable)
+inline
+volume_options_settings VolumeOptions::ptree_to_settings(boost::property_tree::ptree& pt) const
+{
+    return parse_ptree(pt, m_vo_settings);
+}
+inline
+boost::property_tree::ptree VolumeOptions::settings_to_ptree(const volume_options_settings& settings) const
+{
+    boost::property_tree::ptree pt;
+    parse_ptree(pt, m_vo_settings);
+
+    return pt;
 }
 
 /*
-    Simple template, creates the path key with default value if it doesnt exists. else returns the value.
+    Simple template, creates the path key with origin value if it doesn't exists. else returns the value.
 */
 template <typename T>
-T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const T& default_value)
+T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const T& origin_value)
 {
     boost::optional<T> opt = pt.get_optional<T>(path.c_str());
     if (opt)
@@ -205,58 +274,48 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
     }
     else // put missing config
     {
-        try { pt.put(path.c_str(), default_value); }
+        try { pt.put(path.c_str(), origin_value); }
         catch (boost::property_tree::ptree_bad_data) { assert(false); }
     }
 
-    return default_value;
+    return origin_value;
 }
 
 /*
-    It will update the file if some options are missing.
+    Will parse ptree to settings or origin_settings to ptree.
 
-    Parsed settings will be saved.
+    If some options are missing from ptree, it will use origin_settings as default.
+    ptree will be updated with missing settings.
+    If ptree is empty, origin_settings can be used to parse seetings to ptree.
 
-    returns 0 if file not found.
+    returns parsed settings.
 */
-int VolumeOptions::parse_config(const std::string& configFile)
+volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& pt,
+    const volume_options_settings& origin_settings) const
 {
-    std::lock_guard<std::recursive_mutex> guard(m_mutex);
-
-    const vo::volume_options_settings default_settings;
-
     using boost::property_tree::ptree;
-    ptree pt;
 
-    try
-    {
-        read_ini(configFile, pt);
-    }
-    catch (...) // TODO what throws?
-    {
-        return 0;
-    }
-
-    ptree orig_pt = pt;
+    volume_options_settings parsed_settings;
 
     // settings shortcuts
-    vo::session_settings& ses_settings = m_vo_settings.monitor_settings.ses_global_settings;
-    vo::monitor_settings& mon_settings = m_vo_settings.monitor_settings;
-    const vo::session_settings& def_ses_settings = default_settings.monitor_settings.ses_global_settings;
-    const vo::monitor_settings& def_mon_settings = default_settings.monitor_settings;
+    vo::session_settings& ses_settings = parsed_settings.monitor_settings.ses_global_settings;
+    vo::monitor_settings& mon_settings = parsed_settings.monitor_settings;
+    const vo::session_settings& def_ses_settings = origin_settings.monitor_settings.ses_global_settings;
+    const vo::monitor_settings& def_mon_settings = origin_settings.monitor_settings;
 
     // Using boost property threes, boost::optional version used to fill missing config.
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
 
+    // ------ Plugin Settings
 
-    int enabled = ini_put_or_get<int>(pt, "global.enabled", 1);
+    bool enabled = ini_put_or_get<bool>(pt, "global.enabled", m_status == status::DISABLED ? 0 : 1);
     if (!enabled) m_status = status::DISABLED;
 
     // bool: do we exclude ourselfs?
-    m_vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", default_settings.exclude_own_client);
+    parsed_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", origin_settings.exclude_own_client);
 
-    // AudioMonitor will validate these values when AudioMonitor::SetSettings is called
 
+    // ------ Session Settings
 
     // float: Global volume reduction
     ses_settings.vol_reduction = ini_put_or_get<float>(pt, "AudioSessions.vol_reduction", def_ses_settings.vol_reduction);
@@ -273,33 +332,32 @@ int VolumeOptions::parse_config(const std::string& configFile)
     ses_settings.change_only_active_sessions = ini_put_or_get<bool>(pt, "AudioSessions.change_only_active_sessions", def_ses_settings.change_only_active_sessions);
 
 
+    // ------ Monitor Settings
+
     // bool: Dont know why but... yep..  1 enable, 0 disable
     mon_settings.exclude_own_process = ini_put_or_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    std::string included_pid_list, excluded_pid_list;
-    std::string included_process_list, excluded_process_list;
+    // i know, this is a bit messy and error prone, but i think is readable.
+    std::string included_process_list, def_included_process_list;
+    std::string excluded_process_list, def_excluded_process_list;
+    std::string included_pid_list, def_included_pid_list;
+    std::string excluded_pid_list, def_excluded_pid_list;
+
+    // Convert sets to list of strings separated by ; to use them in case of missing ptree value.
+    parse_set(def_mon_settings.included_process, def_included_process_list);
+    parse_set(def_mon_settings.excluded_process, def_excluded_process_list);
+    parse_set(def_mon_settings.included_pids, def_included_pid_list);
+    parse_set(def_mon_settings.excluded_pids, def_excluded_pid_list);
 
     // bool: Cant use both filters.
     mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    included_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", "");
-    included_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", "");
-
-    excluded_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", "");
-    excluded_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", "");
-            
-    // Update ini file if some values were missing.
-    try
-    {
-        if (orig_pt != pt) // NOTE: this comparison can cause warnings depending on included headers
-            write_ini(configFile, pt);
-    }
-    catch (boost::property_tree::ini_parser::ini_parser_error)
-    {
-        // TODO report error to ts3 log
-        assert(false);
-    }
-    
+    // Get strings lists from ptree
+    included_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", def_included_process_list);
+    excluded_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", def_excluded_process_list);
+    included_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", def_included_pid_list);
+    excluded_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", def_excluded_pid_list);
+              
     // clear to overwrite current process values
     mon_settings.included_process.clear();
     mon_settings.excluded_process.clear();
@@ -310,8 +368,7 @@ int VolumeOptions::parse_config(const std::string& configFile)
     mon_settings.included_pids.clear();
     mon_settings.excluded_pids.clear();
     parse_pid_list(included_pid_list, mon_settings.included_pids);
-    parse_pid_list(included_process_list, mon_settings.excluded_pids);
-
+    parse_pid_list(excluded_pid_list, mon_settings.excluded_pids);
 
 #ifdef _DEBUG
     dprintf("\n\n\n\n");
@@ -324,9 +381,34 @@ int VolumeOptions::parse_config(const std::string& configFile)
     dprintf("\n\n\n\n");
 #endif
 
-    return 1;
+    return parsed_settings;
 }
 
+/*
+    wstring set to string list separated by ;
+*/
+void parse_set(const std::set<std::wstring>& set_s, std::string& process_list)
+{
+    for (auto s : set_s)
+    {
+        process_list += wstring_to_utf8(s) + ";";
+    }
+}
+
+/*
+    int set to string list separated by ;
+*/
+void parse_set(const std::set<unsigned long>& set_l, std::string& pid_list)
+{
+    for (auto l : set_l)
+    {
+        pid_list += std::to_string(l) + ";";
+    }
+}
+
+/*
+    wstring list separated by ; to wstring set
+*/
 void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
@@ -343,6 +425,9 @@ void parse_process_list(const std::wstring& process_list, std::set<std::wstring>
     }
 }
 
+/*
+    string list separated by ; to wstring set
+*/
 void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
@@ -358,6 +443,9 @@ void parse_process_list(const std::string& process_list, std::set<std::wstring>&
     }
 }
 
+/*
+    string list separed by ; to int set
+*/
 void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l)
 {
     boost::char_separator<char> sep(";");

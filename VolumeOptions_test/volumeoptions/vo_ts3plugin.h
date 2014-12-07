@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unordered_set>
 #include <string>
 
+#include <boost/property_tree/ptree.hpp>
+
 #include "stdint.h"
 
 #ifdef _WIN32
@@ -74,9 +76,11 @@ public:
     int process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID, const channelID_t channelID,
         const uniqueClientID_t uniqueClientID, const bool ownclient = false);
 
-    vo::volume_options_settings get_current_settings() const; // TODO: minimize copies, separate audio monitor settings
+    vo::volume_options_settings get_current_settings() const;
     void set_settings(vo::volume_options_settings& settings);
     int set_settings_from_file(const std::string &configIniFile, bool create_if_notfound = false);
+    void set_config_file(const std::string &configFile);
+    void save_settings_to_file(const std::string &configFile) const;
 
     void restore_default_volume();
     float get_global_volume_reduction() const;
@@ -102,7 +106,10 @@ private:
     void common_init();
 
     void create_config_file(std::fstream& in);
-    int parse_config(const std::string& configFile = ".");
+    volume_options_settings parse_ptree(boost::property_tree::ptree& pt,
+        const volume_options_settings& origin_settings = volume_options_settings()) const;
+    inline volume_options_settings ptree_to_settings(boost::property_tree::ptree& pt) const;
+    inline boost::property_tree::ptree settings_to_ptree(const volume_options_settings& settings) const;
 
     int apply_status(); // starts or stops audio monitor based on ts3 talking statuses.
 
@@ -121,17 +128,26 @@ private:
     /* channels marked as disabled */
     std::unordered_set<uniqueChannelID_t> m_ignored_channels;
 
-    status m_status;
+    mutable status m_status;
     bool m_someone_enabled_is_talking;
+
+    std::string m_configfile_name;
 
     /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;
 };
 
+
 // free functions to help parsing of process and pid names in a string separated by ";"
+
+// strings list separed by ";"  to  set
 void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s);
 void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
 void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l);
+
+// set  to  strings list separed by ";"
+void parse_set(const std::set<std::wstring>& set_s, std::string& process_list);
+void parse_set(const std::set<unsigned long>& set_l, std::string& pid_list);
 
 
 } // end namespace vo
