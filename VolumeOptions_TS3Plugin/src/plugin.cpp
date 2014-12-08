@@ -169,7 +169,7 @@ void ts3plugin_shutdown() {
     printf("VO_PLUGIN_INT: shutdown\n");
 
     // Will automatically restore volume.
-    g_voptions.release();
+    g_voptions.reset();
 
 	/*
 	 * Note:
