@@ -76,6 +76,9 @@ VolumeOptions::VolumeOptions()
 
 void VolumeOptions::common_init()
 {
+    m_clients_talking.resize(2);
+    m_channels_with_activity.resize(2);
+
     // Create the audio monitor and send settings to parse, it will return parsed settings.
     if (!m_paudio_monitor)
         m_paudio_monitor = AudioMonitor::create();
@@ -654,7 +657,7 @@ inline VolumeOptions::uniqueChannelID_t VolumeOptions::get_unique_channelid(cons
     const channelID_t& nonunique_channelID) const
 {
     // combine unique serverID with nonunique_channelid as a string to make a uniqueChannelID (somewhat)
-    return uniqueChannelID_t(uniqueServerID + " " + std::to_string(nonunique_channelID)); // Profile got zone. TODO fix
+    return uniqueServerID + "-" + std::to_string(nonunique_channelID); // Profiler only hot zone ~6%
 }
 
 /*
@@ -785,7 +788,6 @@ int VolumeOptions::apply_status()
 
     // if last client non disabled stoped talking, restore sounds. 
     if ( m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty() ) 
-        //TODO: || AudioMonitor::InterProcessStatus(m_paudio_monitor->GetdeviceID())
     {
         if (m_status == status::ENABLED)
         {
@@ -833,7 +835,7 @@ int VolumeOptions::apply_status()
     To make it easy and not deal with TS3 callbacks we simply track clients talking and store them, and when they
         stop talking we delete them.
     NOTE: When clients stops talking because they are moved or etc, ts3 onTalkStatusChange can contain the destination
-        channel, not the origin one, we correct that case here.
+        channel, not the origin, we correct that case here.
 */
 int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID,
     const channelID_t channelID, const uniqueClientID_t uniqueClientID, const bool ownclient)
@@ -843,7 +845,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // We mark channelIDs as unique combining its virtual server ID.
-    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID)); // Profiler hot zone 9%
+    uniqueChannelID_t uniqueChannelID(get_unique_channelid(uniqueServerID, channelID)); // Profiler only hot zone 6%
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
     // TODO if user ignores himself well get incorrect count, fix it. revise this.
@@ -896,12 +898,11 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
         // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
         uniqueChannelID_t channelID_origin = uniqueChannelID;
         status channelID_origin_status;
-        if (m_channels_with_activity.empty()) channelID_origin_status = ENABLED; /* ERROR this shouldnt happend */ // TODO change this to vector.
-        for (auto it_status : m_channels_with_activity) // Profiler hot zone 7%
-        {
-            channelID_origin_status = it_status.first;
+        for (int istatus = 0; istatus < m_channels_with_activity.size(); istatus++)
+        {   // 0 = status::DISABLED 1 = status::ENABLED
+            channelID_origin_status = static_cast<status>(istatus);
             // low overhead, usualy a client is in as many channels as servers.
-            for (auto it_cinfo : m_channels_with_activity[it_status.first])
+            for (auto it_cinfo : m_channels_with_activity[istatus])
             {
                 if (it_cinfo.second.count(uniqueClientID))
                 { 

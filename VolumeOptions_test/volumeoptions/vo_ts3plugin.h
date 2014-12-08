@@ -98,7 +98,7 @@ public:
     void reset_all_clients_settings();
 
     // returns server uniqueID plus channel ID as a string: "<uniqueServerID_t><space><channelID_t>"
-    inline uniqueChannelID_t get_unique_channelid(const uniqueServerID_t& uniqueServerID,
+    inline VolumeOptions::uniqueChannelID_t get_unique_channelid(const uniqueServerID_t& uniqueServerID,
         const channelID_t& nonunique_channelID) const;
 
 private:
@@ -118,13 +118,13 @@ private:
     vo::volume_options_settings m_vo_settings;
 
     /* current disabled and enabled clients talking */
-    std::unordered_map<status, std::unordered_set<uniqueClientID_t>> m_clients_talking;
+    std::vector<std::unordered_set<uniqueClientID_t>> m_clients_talking; // 0 = status::DISABLED, 1 = status::ENABLED
     /* clients marked as disabled */
     std::unordered_set<uniqueClientID_t> m_ignored_clients;
 
     typedef std::unordered_map<uniqueChannelID_t, std::unordered_set<uniqueClientID_t>> channel_info;
-    /* current enabled and disabled channels with activity (someone talking in it) */ //TODO use vector?
-    std::unordered_map<status, channel_info> m_channels_with_activity;
+    /* current enabled and disabled channels with activity (someone talking in it) */
+    std::vector<channel_info> m_channels_with_activity; // 0 = status::DISABLED, 1 = status::ENABLED
     /* channels marked as disabled */
     std::unordered_set<uniqueChannelID_t> m_ignored_channels;
 

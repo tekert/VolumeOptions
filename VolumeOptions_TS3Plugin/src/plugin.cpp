@@ -926,7 +926,7 @@ int ts3plugin_onTextMessageEvent(uint64 serverConnectionHandlerID, anyID targetM
 
 void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int status, int isReceivedWhisper, anyID clientID) 
 {
-    /* Get own client */
+    /* Get own client normal ID */
 	anyID myID;
 	if (ts3Functions.getClientID(serverConnectionHandlerID, &myID) != ERROR_ok) 
     {
@@ -940,6 +940,7 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
         ts3Functions.logMessage("Error querying channel ID", LogLevel_ERROR, "Plugin", serverConnectionHandlerID);
         return;
     }   
+    /* Get Client UniqueID*/
     char* uid = NULL;
     if (clientID == myID)
     {
@@ -957,6 +958,7 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
             return;
         }
     }
+    /*  Get server UniqueID*/
     char* unique_serverid = NULL;
     if (ts3Functions.getServerVariableAsString(serverConnectionHandlerID, VIRTUALSERVER_UNIQUE_IDENTIFIER, &unique_serverid) != ERROR_ok)
     {
@@ -964,15 +966,15 @@ void ts3plugin_onTalkStatusChangeEvent(uint64 serverConnectionHandlerID, int sta
         return;
     }
 
-    /* heh so much code for these next lines.. */
+    /* ok, here we start :) */
 	if (status == STATUS_TALKING) 
     {
-        printf("VO_PLUGIN_INT:  %hu [%s] starts talking\n", clientID, uid);
+        dprintf("VO_PLUGIN_INT:  %hu [%s] starts talking\n", clientID, uid);
         g_voptions->process_talk(true, unique_serverid, channelID, uid, (clientID == myID));
 	}
 	else if (status == STATUS_NOT_TALKING)
     {
-        printf("VO_PLUGIN_INT:  %hu [%s] stops talking\n", clientID, uid);
+        dprintf("VO_PLUGIN_INT:  %hu [%s] stops talking\n", clientID, uid);
         g_voptions->process_talk(false, unique_serverid, channelID, uid, (clientID == myID));
     }
 

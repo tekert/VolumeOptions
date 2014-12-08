@@ -26,21 +26,21 @@ Customized by Paul Dolcet.
 //for now i use a incremental number from tool verbuild.
 
 // START verbuild generated numbers
-#define VERSION_FULL           0.9.340.33
+#define VERSION_FULL           0.9.340.36
 
 #define VERSION_DATE           "2014-12-07"
-#define VERSION_TIME           "19:10:36"
+#define VERSION_TIME           "21:58:29"
 #define VERSION_BASEYEAR       2014
 
 #define VERSION_MAJOR          0
-#define VERSION_MINOR          8
+#define VERSION_MINOR          9
 #define VERSION_BUILDNO        340
-#define VERSION_EXTEND         33
+#define VERSION_EXTEND         36
 
-#define VERSION_FILE           0,8,340,33
-#define VERSION_PRODUCT        0,8,340,33
-#define VERSION_FILESTR        "0,8,340,33"
-#define VERSION_PRODUCTSTR     "0,8,340,33"
+#define VERSION_FILE           0,9,340,36
+#define VERSION_PRODUCT        0,9,340,36
+#define VERSION_FILESTR        "0,9,340,36"
+#define VERSION_PRODUCTSTR     "0,9,340,36"
 // END verbuild generation
 
 
