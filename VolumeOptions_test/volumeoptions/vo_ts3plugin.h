@@ -103,8 +103,6 @@ public:
 
 private:
 
-    void common_init();
-
     void create_config_file(std::fstream& in);
     volume_options_settings parse_ptree(boost::property_tree::ptree& pt,
         const volume_options_settings& origin_settings = volume_options_settings()) const;

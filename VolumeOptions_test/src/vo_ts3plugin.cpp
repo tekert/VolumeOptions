@@ -55,13 +55,10 @@ namespace vo
     Will load supplied settings directly
 */
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
-    : m_someone_enabled_is_talking(false)
-    , m_status(status::ENABLED)
+    : VolumeOptions()
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
-
-    common_init();
 }
 
 /* 
@@ -71,13 +68,9 @@ VolumeOptions::VolumeOptions()
     : m_someone_enabled_is_talking(false)
     , m_status(status::ENABLED)
 {
-    common_init();
-}
 
-void VolumeOptions::common_init()
-{
-    m_clients_talking.resize(2);
-    m_channels_with_activity.resize(2);
+    m_clients_talking.resize(2); // will hold VolumeOptions::status, 0 or 1
+    m_channels_with_activity.resize(2); // will hold VolumeOptions::status, 0 or 1
 
     // Create the audio monitor and send settings to parse, it will return parsed settings.
     if (!m_paudio_monitor)

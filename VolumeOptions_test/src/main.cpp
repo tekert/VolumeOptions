@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "../volumeoptions/vo_ts3plugin.h"
+#include "../volumeoptions/vo_gui.h"
 
 // TODO AudioMonitor example
 
@@ -20,6 +21,8 @@ int main2(int argc, char* argv[])
     vo->set_settings_from_file(".\\volumeoptions_plugin.ini"); // will load config file
     //VolumeOptions* vo = new VolumeOptions(settings); // will load supplied settings directly
     // settings is updated with the actual settings applied on creation.
+
+    std::thread guithread(DialogThread, vo, HWND(0)); guithread.detach();
 
     VolumeOptions::channelID_t channelID;
     VolumeOptions::uniqueClientID_t clientID;
@@ -97,6 +100,7 @@ int main2(int argc, char* argv[])
         // we should be at default level here
 	}
 
+    DestroyAllOpenedDialogs();
 
 	system("PAUSE");
 }
