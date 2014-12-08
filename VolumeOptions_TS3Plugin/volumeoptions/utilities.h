@@ -33,10 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 /*  Utilities	*/
-
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif 
 #include <codecvt>
-#include <chrono>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif 
 
+#include <chrono>
 
 ///////////////////////////////////////////////////////
 

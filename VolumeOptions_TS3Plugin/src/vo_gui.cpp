@@ -413,11 +413,11 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     else
         CheckDlgButton(hDlg, IDC_CHECK_VOLUMEASPERCENTAGE, BST_UNCHECKED);
 
+    UpdateSliderControls(hDlg);
     int slider_level = int(ses_settings.vol_reduction * 100);
     HWND hVolSlider = GetDlgItem(hDlg, IDC_SLIDER_VOLUMELEVEL);
     SendMessage(hVolSlider, TBM_SETPOS, TRUE, slider_level);
-
-    UpdateSliderControls(hDlg);
+    UpdateSliderStaticLabel(hDlg, hVolSlider);
 
     if (ses_settings.change_only_active_sessions)
         CheckDlgButton(hDlg, IDC_CHECK_APPLYONLYACTIVE, BST_CHECKED);

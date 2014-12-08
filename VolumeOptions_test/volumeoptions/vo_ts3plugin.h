@@ -31,15 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SOUND_PLUGIN_H
 #define SOUND_PLUGIN_H
 
-#include <iostream>
-#include <stack>
+#include <fstream>
 #include <mutex>
 #include <unordered_set>
+#include <unordered_map>
 #include <string>
 
-#include <boost/property_tree/ptree.hpp>
-
 #include "stdint.h"
+
+#include <boost/property_tree/ptree.hpp>
 
 #ifdef _WIN32
 #include "../volumeoptions/audiomonitor_wasapi.h"

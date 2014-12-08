@@ -28,16 +28,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // conflict with ptree comparison boost::multi_index std::_Equal1
+#endif 
+#include <string>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
 #include <cassert>
 #include <fstream>
+#include <iostream>
+
+#include "stdio.h"
+#include "stdlib.h"
 
 // for ini parser
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-
+ 
 #include <boost/tokenizer.hpp>
 #include <boost/algorithm/string.hpp>
 

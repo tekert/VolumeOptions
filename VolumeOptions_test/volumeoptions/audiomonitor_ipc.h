@@ -67,7 +67,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //#include <boost/thread.hpp>
 
-#include <set>
 #include <string>
 #include <memory>
 #include <thread>
