@@ -1,3 +1,32 @@
+/*
+Copyright (c) 2014, Paul Dolcet
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+    * Neither the name of VolumeOptions nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 #ifdef _WIN32
 
@@ -7,7 +36,6 @@
 #include <windows.h>
 #include <minmax.h> // for max
 #include <commctrl.h>
-#include <tchar.h>
 #include "../resources/gui_resource.h"
 
 #include <string>
@@ -22,7 +50,7 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 // 0 for modal, 1 for modeless.
 #define VO_MODELESS_DIALOG_GUI 1
 
-// Saved opened HWND windows, to easily close them
+// To sabe current GUI threads, so we can abort them easily.
 struct DialogID
 {
     HWND hDlg;
@@ -51,6 +79,7 @@ void DestroyAllOpenedDialogs()
     g_opened_hwnds.clear();
 }
 
+
 // 3 ways to get current process module load base address. HINSTANCE HMODULE POINTER
 HMODULE GetCurrentModule()
 {
@@ -76,7 +105,8 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 #define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
 #endif
 
-// Helper class to control activation context
+
+// Helper class to control activation context on modules
 // http://msdn.microsoft.com/en-us/library/aa375197.aspx
 class CActivationContext
 {
@@ -155,6 +185,7 @@ void InitIsolationAware(HINSTANCE hInst)
     // The static destructor for g_context destroys the
     // activation context on component (dll, module, etc) unload.
 }
+
 
 // Description:
 //   Creates a tooltip for an item in a dialog box. 
@@ -248,6 +279,7 @@ BOOL CenterWindow(HWND hwndWindow)
 
     return FALSE;
 }
+
 
 /*
     Sets tooltip descriptions for volumeoptions config dialog

@@ -53,7 +53,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // TODO: clean this below
 
 #define VO_USE_SYSTEM_ASSERT 0 // 1 = use standard system asserts, 0 = use our asserts
-#define VO_VERSION "test" // TODO remove this
 
 #ifdef _DEBUG
 #define PRINT_LOG 1

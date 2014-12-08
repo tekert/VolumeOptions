@@ -48,30 +48,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define VO_ENABLE_EVENTS
 
 
-
-
-// TODO: clean this below
-
-#define VO_USE_SYSTEM_ASSERT 0 // 1 = use standard system asserts, 0 = use our asserts
-#define VO_VERSION "test" // TODO remove this
-
 #ifdef _DEBUG
 #define PRINT_LOG 1
-
-#if !VO_USE_SYSTEM_ASSERT
-#define VO_WRITE_TO_FILE_ASSERTS 0 // 1 = writes asserts to file and continues normal execution. 0 = prints and aborts
-#endif
-
 #else
 #define PRINT_LOG 0
-
-#define VO_RELEASE_ASSERTS  // forces asserts on release mode
-#ifdef VO_RELEASE_ASSERTS
-#define VO_WRITE_TO_FILE_ASSERTS 1 
 #endif
-
-#endif
-
 
 #ifdef PRINT_LOG
 #if PRINT_LOG

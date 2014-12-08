@@ -13,6 +13,8 @@
 #include <cstring>
 #include <stdlib.h>
 
+#include "../volumeoptions/version.h"
+
 // uClibc++ doesn't have cxxabi.h
 #if defined __GNUC__ && __GNUC__ >= 3 \
 	&& !defined __UCLIBCXX_MAJOR__
@@ -224,7 +226,7 @@ void assert_fail(char const* expr, int line, char const* file
     char const* message = "assertion failed. Please file a bugreport at "
         "https://github.com/tekert/VolumeOptions/issues\n"
         "Please include the following information:\n\n"
-        "version: " VO_VERSION "\n";
+        "version: " VO_VERSION_STR "\n";
 
     switch (kind)
     {
