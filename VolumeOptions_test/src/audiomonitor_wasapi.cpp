@@ -916,20 +916,11 @@ void AudioSession::state_changed_callback_handler(AudioSessionState newstatus)
     switch (newstatus)
     {
     case AudioSessionState::AudioSessionStateActive:
-    {
-        std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
-        // Pending vol restores are no longer valid, session is now active.
-        if (spAudioMonitor)
-            spAudioMonitor->m_pending_restores.erase(this);
-
         ApplyVolumeSettings();
-    }
         break;
 
     case AudioSessionState::AudioSessionStateInactive:
-    {
         RestoreVolume();
-    }
         break;
     }
 }
@@ -971,13 +962,12 @@ HRESULT AudioSession::ApplyVolumeSettings()
 
     // if AudioSession::is_volume_at_default is true, the session is at user default volume.
     // if AudioMonitor::m_auto_change_volume_flag is true, auto volume reduction is activated, else disabled.
-    if (/*(m_is_volume_at_default) &&*/ (spAudioMonitor->m_auto_change_volume_flag) && change_vol)
+    if (spAudioMonitor->m_auto_change_volume_flag && change_vol)
     {
         float set_vol;
         if (ses_setting.treat_vol_as_percentage)
         {
             assert((current_vol_reduction >= -1.0f) && (current_vol_reduction <= 1.0f));
-
             // if negative, will actually increase volume! (limit -1.0f to 1.0f)
             if (current_vol_reduction >= 0.0f)
                 set_vol = m_default_volume * (1.0f - current_vol_reduction); // %
@@ -989,6 +979,9 @@ HRESULT AudioSession::ApplyVolumeSettings()
             assert((current_vol_reduction >= 0.0f) && (current_vol_reduction <= 1.0f));
             set_vol = 1.0f - current_vol_reduction; // fixed (limit 0.0f to 1.0f)
         }
+
+        // Volume will be changed because of settings, pending delayed vol restore has no purpose.
+        spAudioMonitor->m_pending_restores.erase(this);
 
         ChangeVolume(set_vol);
         m_is_volume_at_default = false; // mark that the session is NOT at default state.
@@ -1078,8 +1071,8 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
     If 'is_volume_at_default' flag is true it means the session is already at default level.
     If is false it means we have to restore it.
 
-    callback_no_delay  -> optional parameter (default false) to indicate if we should
-        create a callback timer (if configured to do so) or change vol directly.
+    callback_type  -> optional parameter (default NORMAL) to indicate if we should
+        create a callback timer (if configured to do so) or change vol without delay (NO_DELAY).
 */
 HRESULT AudioSession::RestoreVolume(resume_t callback_type)
 {
@@ -1113,7 +1106,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
                 // Create an async callback timer :)
                 // IMPORTANT: Delete timer from container when :
                 //		1. Callback is completed.
-                //		2. We change volume from default level.
+                //		2. We change session volume.
                 //		3. Monitor is started/resumed (AudioMonitor)
                 //		4. A session is removed from container. (AudioMonitor)
                 //          to free AudioSession destructor sooner.
