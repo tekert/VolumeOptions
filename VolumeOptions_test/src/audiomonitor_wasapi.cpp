@@ -969,8 +969,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
         {
             assert((current_vol_reduction >= -1.0f) && (current_vol_reduction <= 1.0f));
             // if negative, will actually increase volume! (limit -1.0f to 1.0f)
-            if (current_vol_reduction >= 0.0f)
-                set_vol = m_default_volume * (1.0f - current_vol_reduction); // %
+            set_vol = m_default_volume * (1.0f - current_vol_reduction); // %
 
             if (set_vol > 1.0f) set_vol = 1.0f;
         }
@@ -1074,10 +1073,8 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
     callback_type  -> optional parameter (default NORMAL) to indicate if we should
         create a callback timer (if configured to do so) or change vol without delay (NO_DELAY).
 */
-HRESULT AudioSession::RestoreVolume(resume_t callback_type)
+void AudioSession::RestoreVolume(resume_t callback_type)
 {
-    HRESULT hr = S_OK;
-
     if (!m_is_volume_at_default)
     {
         if (callback_type == resume_t::NORMAL)
@@ -1097,7 +1094,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
                 spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero())
             {
                 // play it safe, skip this when called from AudioSession destructor...
-                if (!spAudioSession) return hr;
+                if (!spAudioSession) return;
 #ifdef _DEBUG
                 if (spAudioMonitor->m_pending_restores.find(this) != spAudioMonitor->m_pending_restores.end())
                     dprintf("AudioSession::RestoreVolume PID[%d] A pending restore timer is waiting... "
@@ -1105,7 +1102,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
 #endif
                 // Create an async callback timer :)
                 // IMPORTANT: Delete timer from container when :
-                //		1. Callback is completed.
+                //		1. Callback is completed or on restore with no delay.
                 //		2. We change session volume.
                 //		3. A session is removed from container. (AudioMonitor)
                 //          to free AudioSession destructor sooner.
@@ -1117,15 +1114,15 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
 
                 dprintf("AudioSession::RestoreVolume PID[%d] Created and saved delayed callback\n", getPID());
 
-                return hr;
+                return;
             }
         }
 
+        // Restore volume delay timer is no longer needed, caducated.
         std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
         if (spAudioMonitor)
-        {   // Restore vol Timer is no longer needed, caducated.
             spAudioMonitor->m_pending_restores.erase(this);
-        } // else  AudioMonitor is currently shuting down, m_pending_restores will be deleted.
+        // else  AudioMonitor is currently shuting down, m_pending_restores will be deleted.
 
         // Now... restore
         ChangeVolume(m_default_volume);
@@ -1139,7 +1136,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
         dprintf("AudioSession::RestoreVolume PID[%d] Restoring Volume already at default state = %.2f\n", getPID(), m_default_volume);
     }
 
-    return hr;
+    return;
 }
 
 /*

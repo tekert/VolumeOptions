@@ -129,7 +129,7 @@ private:
     void UpdateDefaultVolume(const float new_def);
 
     enum class resume_t { NORMAL = false, NO_DELAY = true };
-    HRESULT RestoreVolume(resume_t callback_type = resume_t::NORMAL);
+    void RestoreVolume(resume_t callback_type = resume_t::NORMAL);
     void RestoreHolderCallback(boost::system::error_code const& e = boost::system::error_code());
 
     void ChangeVolume(const float v);
