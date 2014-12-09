@@ -117,6 +117,8 @@ private:
     AudioSession(IAudioSessionControl *pSessionControl,
         const std::weak_ptr<AudioMonitor>& spAudioMonitor, float default_volume_fix = -1.0f);
 
+    void ShutdownSession();
+
     void InitEvents();
     void StopEvents();
 
@@ -135,12 +137,13 @@ private:
     void touch(); // sets m_last_modified_on now().
     void set_state(AudioSessionState state);
 
-    AudioSessionState m_current_state;
+    AudioSessionState m_current_state; // auto updated with session events.
 
     float m_default_volume; // always marks user default volume of this SID group session
     bool m_is_volume_at_default;  // if true, session volume is at user default volume
 
-    bool m_excluded_flag;
+    bool m_excluded_flag; // true if this session is temporarily exluded for volume change.
+    bool m_session_dead; // only true when all internal wasapi references all released with ShutdownSession().
 
     DWORD m_pid;
     std::wstring m_sid;
@@ -255,7 +258,8 @@ private:
     // Main sessions container type
 
     // Used to delay or cancel all volume restores  session_this_pointer -> timer
-    std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> m_pending_restores; //TODO: try to merge it with saved_sessions, new container or class
+    typedef std::unordered_map<const AudioSession*, std::unique_ptr<boost::asio::steady_timer>> t_pending_restores;
+    t_pending_restores m_pending_restores;
 
     bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
     //monitor_status_t m_current_status;

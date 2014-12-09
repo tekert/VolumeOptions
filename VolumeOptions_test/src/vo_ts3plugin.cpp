@@ -351,7 +351,7 @@ volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& 
     std::string included_pid_list, def_included_pid_list;
     std::string excluded_pid_list, def_excluded_pid_list;
 
-    // Convert sets to list of strings separated by ; to use them in case of missing ptree value.
+    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
     parse_set(def_mon_settings.included_process, def_included_process_list);
     parse_set(def_mon_settings.excluded_process, def_excluded_process_list);
     parse_set(def_mon_settings.included_pids, def_included_pid_list);
