@@ -1107,8 +1107,7 @@ HRESULT AudioSession::RestoreVolume(resume_t callback_type)
                 // IMPORTANT: Delete timer from container when :
                 //		1. Callback is completed.
                 //		2. We change session volume.
-                //		3. Monitor is started/resumed (AudioMonitor)
-                //		4. A session is removed from container. (AudioMonitor)
+                //		3. A session is removed from container. (AudioMonitor)
                 //          to free AudioSession destructor sooner.
                 // NOTE: dont cancel() timers, delete or replace them.
                 // IMPORTANT: Use a shared_ptr per async call so we have something persistent to async.
@@ -1646,7 +1645,8 @@ void AudioMonitor::DeleteSessions()
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // First delete all pending timers on audio sessions.
-    // (this will cancel pending timers, not pending timers will be executed)
+    // (this will cancel pending timers, 
+    //  not pending timers will be executed but will be manually cancelled)
     m_pending_restores.clear();
 
     // Use shutdown first to delete all wasapi internal references
@@ -2188,9 +2188,6 @@ long AudioMonitor::Start()
         if (m_current_status == monitor_status_t::PAUSED)
         {
             dwprintf(L"\n\t .... AudioMonitor::Start() RESUMED ----\n\n");
-
-            // Old pending vol restore timers are caducated.
-            m_pending_restores.clear();
         }
 
         // Signal reduce volume flag and apply volume change settings.
