@@ -903,7 +903,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
         // SELFNOTE: (i dont want to use ts3 callbacks for every case, a pain to mantain, concentrate all cases here)
         uniqueChannelID_t channelID_origin = uniqueChannelID;
         status channelID_origin_status;
-        for (int istatus = 0; istatus < m_channels_with_activity.size(); istatus++)
+        for (std::size_t istatus = 0; istatus < m_channels_with_activity.size(); istatus++)
         {   // 0 = status::DISABLED 1 = status::ENABLED
             channelID_origin_status = static_cast<status>(istatus);
             // low overhead, usualy a client is in as many channels as servers.
