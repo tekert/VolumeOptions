@@ -102,11 +102,12 @@ const char* ts3plugin_author() {
 /* Plugin description */
 const char* ts3plugin_description() {
 	/* If you want to use wchar_t, see ts3plugin_name() on how to use */
-    return "Lower volume of other audio sessions while someone talks.\n"
+    return "Changes volume of other audio sessions while someone talks.\n"
         "Configurable filter settings, per client, channel or audio session.\n"
-        "Maintains user audio sessions volume level on restore.\n"
+        "Keeps user default audio volume on restore.\n"
         "\n"
         "Currently in beta testing, Endpoint device selection comming in the future.\n"
+        "A linux version too.\n"
         "\n"
         "Open Source: https://github.com/tekert/VolumeOptions\n";
 }

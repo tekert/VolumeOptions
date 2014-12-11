@@ -124,8 +124,9 @@ private:
 
     void state_changed_callback_handler(AudioSessionState newstatus);
 
-    float GetCurrentVolume() const;
     HRESULT ApplyVolumeSettings(); // TODO: or make it public with async and bool restore_vol optional merging restorevolume
+
+    float GetCurrentVolume() const;
     void UpdateDefaultVolume(const float new_def);
 
     enum class resume_t { NORMAL = false, NO_DELAY = true };
@@ -179,8 +180,8 @@ private:
 class AudioMonitor : public std::enable_shared_from_this < AudioMonitor >
 {
 public:
-    /* Created with STOPPED status */
 
+    /* Created with STOPPED status */
     // static std::shared_ptr<AudioMonitor> create(vo::monitor_settings&& settings,
         //const std::wstring& device_id = L"")  // if no variadic template support
     template<typename ...T>
@@ -192,7 +193,7 @@ public:
     AudioMonitor& operator= (const AudioMonitor&) = delete; // non copyassignable
     ~AudioMonitor();
 
-    /* audio_endpoints: returns a DeviceID -> DeviceName map with current audio rendering devices */
+    // audio_endpoints: returns a DeviceID -> DeviceName map with current audio rendering devices
     static HRESULT GetEndpointsInfo(std::map<std::wstring, std::wstring>& audio_endpoints,
         DWORD dwStateMask = DEVICE_STATE_ACTIVE);
     static std::set<std::wstring> GetCurrentMonitoredEndpoints();
@@ -205,7 +206,7 @@ public:
 
     /* If Resume is used while Stopped it will use Start() */
     long Stop(); // Stops all events and deletes all saved sessions restoring default state.
-    long Pause(); // Restores volume on all sessions and freezes volume change.
+    long Pause(); // Restores volume on all sessions and locks volume change.
     long Start(); // Resumes/Starts volume change and reapplies saved settings.
 #ifdef _DEBUG
     long Refresh(); // DEBUG Gets all current sessions in SndVol

@@ -70,6 +70,8 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
+
+    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 /* 
@@ -86,8 +88,6 @@ VolumeOptions::VolumeOptions()
     // Create the audio monitor and send settings to parse, it will return parsed settings.
     if (!m_paudio_monitor)
         m_paudio_monitor = AudioMonitor::create();
-
-    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 VolumeOptions::~VolumeOptions()

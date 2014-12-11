@@ -70,6 +70,8 @@ VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
 {
     m_vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
+
+    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 /* 
@@ -86,8 +88,6 @@ VolumeOptions::VolumeOptions()
     // Create the audio monitor and send settings to parse, it will return parsed settings.
     if (!m_paudio_monitor)
         m_paudio_monitor = AudioMonitor::create();
-
-    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 VolumeOptions::~VolumeOptions()
@@ -113,8 +113,9 @@ void VolumeOptions::set_config_file(const std::string &configFile)
 }
 
 /*
-    Tries to open configFile and set settings
-        it will create and/or update the file if some options are missing.
+    Tries to open configFile and set settings.
+
+    It will create and/or update the file if some options are missing.
 */
 int VolumeOptions::set_settings_from_file(const std::string &configFile, bool create_if_notfound)
 {
@@ -351,7 +352,7 @@ volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& 
     std::string included_pid_list, def_included_pid_list;
     std::string excluded_pid_list, def_excluded_pid_list;
 
-    // Convert sets to list of strings separated by ; to use them in case of missing ptree value.
+    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
     parse_set(def_mon_settings.included_process, def_included_process_list);
     parse_set(def_mon_settings.excluded_process, def_excluded_process_list);
     parse_set(def_mon_settings.included_pids, def_included_pid_list);

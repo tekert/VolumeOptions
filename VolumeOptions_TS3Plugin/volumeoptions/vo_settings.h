@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace vo {
 
-// SndVol Library individual Session settings
+// SndVol Library Session settings
 struct session_settings
 {
     session_settings()
@@ -53,12 +53,12 @@ struct session_settings
     // Session settings
     bool change_only_active_sessions;
     bool treat_vol_as_percentage;
-    float vol_reduction; // 0.0 to 1.0
+    float vol_reduction;
     std::chrono::milliseconds vol_up_delay; // delay to restore default volume.
 };
 
 
-// SndVol Library configurable settings
+// SndVol Library settings
 struct monitor_settings
 {
     monitor_settings()
