@@ -1,6 +1,8 @@
 
 #include <stdlib.h>
 
+#include <memory>
+
 #include "../volumeoptions/vo_ts3plugin.h"
 #include "../volumeoptions/vo_gui.h"
 
@@ -17,12 +19,14 @@ int main2(int argc, char* argv[])
     settings.monitor_settings.ses_global_settings.vol_reduction = 0.4f;
 
 	// Example interface for ts3 talk software,
-    VolumeOptions* vo = new VolumeOptions();
+    std::unique_ptr<VolumeOptions> vo = std::make_unique<VolumeOptions>();
     vo->set_settings_from_file(".\\volumeoptions_plugin.ini"); // will load config file
     //VolumeOptions* vo = new VolumeOptions(settings); // will load supplied settings directly
-    // settings is updated with the actual settings applied on creation.
 
-    std::thread guithread(DialogThread, vo, HWND(0)); guithread.detach();
+    // Or use supplied windows dialog as example
+#ifdef _WIN32
+    std::thread guithread(DialogThread, vo.get(), nullptr);
+#endif
 
     VolumeOptions::channelID_t channelID;
     VolumeOptions::uniqueClientID_t clientID;
@@ -100,7 +104,10 @@ int main2(int argc, char* argv[])
         // we should be at default level here
 	}
 
+#ifdef _WIN32
     DestroyAllOpenedDialogs();
+    guithread.join();
+#endif
 
 	system("PAUSE");
 }

@@ -113,8 +113,9 @@ void VolumeOptions::set_config_file(const std::string &configFile)
 }
 
 /*
-    Tries to open configFile and set settings
-        it will create and/or update the file if some options are missing.
+    Tries to open configFile and set settings.
+
+    It will create and/or update the file if some options are missing.
 */
 int VolumeOptions::set_settings_from_file(const std::string &configFile, bool create_if_notfound)
 {

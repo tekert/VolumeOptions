@@ -267,8 +267,7 @@ namespace
 /*
     Callback class for current session events, -Audio Events Thread
 
-    We use async call here, i decided to use asio because.. well i've been using it for years.
-    I could implement a thread safe queue for async calls but i already had this tested and done
+    We use asio async calls here to sync with AudioMonitor main thread.
 
     MSDN:
     1 The methods in the interface must be nonblocking. The client should never wait on a synchronization
@@ -278,9 +277,9 @@ namespace
     3 The client should never release the final reference on a WASAPI object during an event callback.
 
     NOTES:
-    *1 To be non blocking(for long) and thread safe using our AudioMonitor class the only safe easy way is to
-            use async calls.
-    *2 Easy enough. (we also lock AudioSession ptr at first to be extra safe it wont be unregistered on other thread)
+    *1 To be non blocking(waiting for long) and thread safe using our AudioMonitor class the only safe and easy
+        way is to use async calls.
+    *2 Easy enough. (all calls are async, so unregister is always done in AudioMonitor main thread)
     *3 See AudioSession class destructor for more info about that.
 */
 #define TEST_NO_SHAREDPTR 0     // I need it so i can create events in AudioSession constructor, testing.
@@ -716,21 +715,20 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
     if (m_default_volume < 0.0f)
         UpdateDefaultVolume(currrent_vol);
 
-    // We dont know yet the state, we will get it after enabling events when contructor
-    //  finishes, so event callbacks are queued correctly with a valid shared_ptr.
-    //  set default as active, this also initializes m_last_active_state.
+    // We wont get the state yet, we will get it after enabling events when contructor
+    //  finishes (we enable events after contruction finishes so event callbacks are queued
+    //  correctly with a valid AudioSession shared_ptr).
+    // Set default as active, this also initializes m_last_active_state.
     set_state(AudioSessionState::AudioSessionStateActive);
 
-    /* Fix for Sndvol, if a new session is detected when the process was just
-    opened, wasapi volume change won work, no way around it. wait for a bit */
+    // Fix for Sndvol, if a new session is detected when the process was just
+    //   opened, wasapi volume change won work, no way around it. wait for a bit
     Sleep(20);
 
     // Windows SndVol fix.
-    /* 
-    'default_volume' has the volume of another recently changed same SID volume, negative if not. 
-        Sessions with the same SID take their default volume from the last SID changed >5sec ago from the registry, 
-        *see AudioSession::ApplyVolumeSettings and AudioMonitor::SaveSession for more doc.
-    */
+    //  If 'default_volume' param is >= 0 it has the volume of another recently changed same SID volume. 
+    //    Sessions with the same SID take their default volume from the last changed SID (>5sec) from the registry, 
+    //    *see AudioSession::ApplyVolumeSettings and AudioMonitor::SaveSession for more doc.
     if (default_volume >= 0.0f)
     {
         if (m_is_volume_at_default && (m_default_volume != currrent_vol))
@@ -765,7 +763,7 @@ AudioSession::AudioSession(IAudioSessionControl *pSessionControl, const std::wea
 done:
     SAFE_RELEASE(pSessionControl2);
 
-    // Check class status after creation. AudioSession::GetStatus() HRESULT type, if failed discart this session.
+    // Check class status after creation. AudioSession::GetStatus() HRESULT type, if failed discard this session.
     // NOTE: i dont like exceptions on windows api code.
     ;
 }
@@ -781,7 +779,7 @@ AudioSession::~AudioSession()
 /*
     This will render the object basically dead for wasapi without destroying it.
 
-    Necessary to release all wasapi references before enumerating new ones, (wasapi rules...)
+    Is necessary to release all wasapi references before enumerating new ones, (wasapi rules...)
         if we dont release references before enumerating it leaks memory,
         more info on AudioMonitor::RefreshSessions().
 
@@ -798,7 +796,7 @@ void AudioSession::ShutdownSession()
     // First, before releasing, unregister events.
     StopEvents();
 
-    // Set Session volume level to default state before releasing.
+    // Set Session volume level to default state.
     RestoreVolume(resume_t::NO_DELAY);
 
     if (m_pSessionControl) assert(CHECK_REFS(m_pSessionControl) == 1);
@@ -855,8 +853,6 @@ void AudioSession::StopEvents()
     if ((m_pSessionControl != NULL) && (m_pAudioEvents != NULL))
     {
         // MSDN: "The client should never release the final reference on a WASAPI object during an event callback."
-        // So we need to unregister and wait for current async'd events to finish before releasing our  
-        // last ISessionControl.
         // NOTE: using async calls we garantize we can comply to this.
         CHECK_HR(m_hrStatus = m_pSessionControl->UnregisterAudioSessionNotification(m_pAudioEvents));
         dprintf("AudioSession::StopEvents() Stopped Session Events on PID[%d]\n", getPID());
@@ -907,7 +903,7 @@ done:
 
 /*
     Simple handler for new sessesion state events. 
-    (called from wasapi registered session events callback class)
+    (called from registered CAudioSessionEvents)
 */
 void AudioSession::state_changed_callback_handler(AudioSessionState newstatus)
 {
@@ -926,15 +922,15 @@ void AudioSession::state_changed_callback_handler(AudioSessionState newstatus)
 }
 
 /*
-    Changes Session Volume based on current saved session settings.
+    Changes Session Volume based on current AudioMonitor settings.
 
     It gets settings from his AudioMonitor to decide if change vol or not.
 
     Note: SndVol uses the last changed session's volume on new instances of the same process(SID) as default vol.
     It takes ~5 sec to register a new volume level back at the registry, key:
     "HKEY_CURRENT_USER\Software\Microsoft\Internet Explorer\LowRegistry\Audio\PolicyConfig\PropertyStore"
-    it overwrites sessions with the same SID.
-    See AudioMonitor:SaveSession for how we use the correct default vol value without using this session SndVol level.
+        (it overwrites sessions with the same SID).
+    See AudioMonitor:SaveSession for how we use the correct default vol value on new monitored sessions.
 */
 HRESULT AudioSession::ApplyVolumeSettings()
 {
@@ -943,14 +939,13 @@ HRESULT AudioSession::ApplyVolumeSettings()
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
     if (!spAudioMonitor) return S_OK; // AudioMonitor is currently shuting down, abort.
 
-    // shortcut reference to monitor globals settings.
+    // shortcut to AudioMonitor settings.
     const session_settings& ses_setting = spAudioMonitor->m_settings.ses_global_settings;
     const float &current_vol_reduction = ses_setting.vol_reduction;
 
     bool change_vol = true;
-    // Only change volume if the session is active and configured to do so
     if (ses_setting.change_only_active_sessions)
-    {
+    {   // Only change volume if the session is active
         if (m_current_state == AudioSessionState::AudioSessionStateActive)
             change_vol = true;
         else
@@ -961,7 +956,7 @@ HRESULT AudioSession::ApplyVolumeSettings()
         change_vol = false;
 
     // if AudioSession::is_volume_at_default is true, the session is at user default volume.
-    // if AudioMonitor::m_auto_change_volume_flag is true, auto volume reduction is activated, else disabled.
+    // if AudioMonitor::m_auto_change_volume_flag is true, auto volume change is active, else disabled.
     if (spAudioMonitor->m_auto_change_volume_flag && change_vol)
     {
         float set_vol;
@@ -979,11 +974,11 @@ HRESULT AudioSession::ApplyVolumeSettings()
             set_vol = 1.0f - current_vol_reduction; // fixed (limit 0.0f to 1.0f)
         }
 
-        // Volume will be changed because of settings, pending delayed vol restore has no purpose.
+        // If m_auto_change_volume_flag is active and we are changing volume, pending restores are no longer velid.
         spAudioMonitor->m_pending_restores.erase(this);
 
         ChangeVolume(set_vol);
-        m_is_volume_at_default = false; // mark that the session is NOT at default state.
+        m_is_volume_at_default = false; // mark, session is NOT at user default volume.
 
         dprintf("AudioSession::ApplyVolumeSettings() PID[%d] Changed Volume to %.2f\n",
             getPID(), set_vol);
@@ -1001,9 +996,9 @@ HRESULT AudioSession::ApplyVolumeSettings()
 /*
     Sets new volume level as default for restore.
 
-    Used when user changed volume manually while monitoring, updates his preference as new default, this should be
-        called from callbacks when contextGUID is different of ours.
-    That means we didnt change the volume. if not using events, defaults will be updated only when
+    Used when user changed volume manually while monitoring, this updates his preference as new default,
+        this should be called from onVolumeChange callbacks when contextGUID is different of ours.
+    It means we didnt change the volume. If not using events, defaults will be updated only when
         AudioMonitor is refreshing.
 */
 void AudioSession::UpdateDefaultVolume(const float new_def)
@@ -1019,8 +1014,7 @@ void AudioSession::UpdateDefaultVolume(const float new_def)
         from AudioSession::RestoreVolume
 
     Is important to retain a shared_ptr so callbacks have something to call to always,
-        so we dont have to manualy hold the instance before deleting..
-        making this clearer and safer.
+        so we dont have to manualy hold the instance before deleting.. making this clearer and safer.
 */
 void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 {
@@ -1039,7 +1033,7 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
     // NOTE: an asio timer can be canceled but, if it was already expired, it will call its handler
     //  as normal (non aborted), so we have to manually check if we canceled it or not.
     //  asio::*_timer::cancel() will return if it was canceled or already queued for execution.
-    //  but we directly handle that by checking if we deleted the timer wanting to cancel its handler.
+    //  but we directly handle that by checking if we deleted the timer wanting to abort its handler.
     std::shared_ptr<AudioMonitor> spAudioMonitor(m_wpAudioMonitor.lock());
     if (spAudioMonitor)
     {
@@ -1049,7 +1043,7 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
         if (it == spAudioMonitor->m_pending_restores.end())
             return;
 
-        // Timer completed, we can discard it.
+        // Timer completed (expired), erase it.
         spAudioMonitor->m_pending_restores.erase(it);
 
     } // else AudioMonitor is currently shuting down.
@@ -1065,9 +1059,8 @@ void AudioSession::RestoreHolderCallback(boost::system::error_code const& e)
 /*
     Restores Default session volume
 
-    We saved the default volume on the session so we can restore it here
-        m_default_volume always have the user preferred session default volume.
-    If 'is_volume_at_default' flag is true it means the session is already at default level.
+    The session m_default_volume always have the user preferred session default volume.
+    If 'is_volume_at_default' flag is true it means the session is already at user default level.
     If is false it means we have to restore it.
 
     callback_type  -> optional parameter (default NORMAL) to indicate if we should
@@ -1084,16 +1077,16 @@ void AudioSession::RestoreVolume(resume_t callback_type)
             if (!spAudioMonitor) callback_type = resume_t::NO_DELAY; // AudioMonitor is currently shuting down.
 
             std::shared_ptr<AudioSession> spAudioSession;
-            // play it safe, callback_type should be no_delay when called from AudioSession destructor...
+            // callback_type should be no_delay when called from AudioSession destructor...
             try { spAudioSession = this->shared_from_this(); }
             catch (std::bad_weak_ptr&) { callback_type = resume_t::NO_DELAY; }
 
-            // if delays are configured create asio timers to "self" call with callback_no_delay = true
-            //		timers are also stored on AudioMonitor to cancel them when necessary.
+            // if delays are configured create asio timers to "self" call with callback_type = NO_DELAY
+            //		timers are also stored on AudioMonitor to cancel/abort them when necessary.
             if ((callback_type == resume_t::NORMAL) &&
                 spAudioMonitor->m_settings.ses_global_settings.vol_up_delay != std::chrono::milliseconds::zero())
             {
-                // play it safe, skip this when called from AudioSession destructor...
+                // to be extra safe
                 if (!spAudioSession) return;
 #ifdef _DEBUG
                 if (spAudioMonitor->m_pending_restores.find(this) != spAudioMonitor->m_pending_restores.end())
@@ -1103,7 +1096,7 @@ void AudioSession::RestoreVolume(resume_t callback_type)
                 // Create an async callback timer :)
                 // IMPORTANT: Delete timer from container when :
                 //		1. Callback is completed or on restore with no delay.
-                //		2. We change session volume.
+                //		2. We change session volume to non default value.
                 //		3. A session is removed from container. (AudioMonitor)
                 //          to free AudioSession destructor sooner.
                 // NOTE: dont cancel() timers, delete or replace them.
@@ -1129,7 +1122,7 @@ void AudioSession::RestoreVolume(resume_t callback_type)
 
         dprintf("AudioSession::RestoreVolume PID[%d] Restoring Volume of Session to %.2f\n", getPID(), m_default_volume);
 
-        m_is_volume_at_default = true; // to signal the session is at default state.
+        m_is_volume_at_default = true; // session is at default volume
     }
     else
     {
@@ -1140,7 +1133,7 @@ void AudioSession::RestoreVolume(resume_t callback_type)
 }
 
 /*
-    Forces volume on session
+    Forces/Changes session volume level.
 */
 void AudioSession::ChangeVolume(const float v)
 {
@@ -1159,11 +1152,18 @@ done:
     SAFE_RELEASE(pSimpleAudioVolume);
 }
 
+/*
+    Sets session last modified time
+*/
 void AudioSession::touch()
 {
     m_last_modified_on = std::chrono::steady_clock::now();
 }
 
+/*
+    Used to keep track of session state and when it changed if using events.
+    So we dont use expensive OS calls.
+*/
 void AudioSession::set_state(AudioSessionState state)
 {
     switch (state)
@@ -1185,7 +1185,7 @@ void AudioSession::set_state(AudioSessionState state)
 
 
     /////////////////////////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////  AudioMonitor   ///////////////////////////////////////
+    //////////////                      AudioMonitor                               //////////////
     /////////////////////////////////////////////////////////////////////////////////////////////
 
 AudioMonitor::AudioMonitor(const std::wstring& device_id)
@@ -1196,8 +1196,8 @@ AudioMonitor::AudioMonitor(const std::wstring& device_id)
     , m_pSessionManager2(NULL)
     , m_abort(false)
 #ifdef VO_ENABLE_EVENTS
-    , m_delete_expired_interval(30) // when to call delete_expired_sessions
-    , m_inactive_timeout(120) // sessions older than this are deleted
+    , m_delete_expired_interval(30) // controls time interval to call delete_expired_sessions.
+    , m_inactive_timeout(120) // sessions older than this are deleted.
 #endif
 {
     HRESULT hr = S_OK;
@@ -1607,7 +1607,7 @@ HRESULT AudioMonitor::RefreshSessions()
     // Get the current list of sessions.
     // IMPORTANT NOTE: DONT retain references to IAudioSessionControl before calling this function,
     //      it causes memory leaks.
-    // IMPORTANT NOTE2: We have to use this call if we want receive new session notifications
+    // IMPORTANT NOTE2: We have to use this call if we want to receive new session notifications
     // http://msdn.microsoft.com/en-us/library/dd368281%28v=vs.85%29.aspx point 5. (verified)
     CHECK_HR(hr = m_pSessionManager2->GetSessionEnumerator(&pSessionList));
 
@@ -1696,7 +1696,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
             //      they each contain a shared_ptr to AudioSession.
             m_pending_restores.erase(it->second.get());
 
-            it->second->ShutdownSession();
+            //it->second->ShutdownSession();
             it = m_saved_sessions.erase(it);
         }
         else
@@ -1707,7 +1707,7 @@ void AudioMonitor::DeleteExpiredSessions(boost::system::error_code const& e,
 }
 
 /*
-    Applies current parsed saved settings on all class elements.
+    Applies current saved settings on all class elements.
 */
 void AudioMonitor::ApplyMonitorSettings()
 {
@@ -1955,8 +1955,8 @@ void AudioMonitor::DeleteSession(std::shared_ptr<AudioSession> spAudioSession)
     Stops monitoring current sessions
 
     First we stop events so new sessions cant come in
-    Then we set volume change flag to false
-    Finaly we delete all sessions, restoring default volume.
+    Then we set auto change volume flag false
+    Finally we delete all sessions, restoring default volume.
     Now the class is at clean state ready for shutdown or new start.
 
     TODO: error codes
@@ -1983,7 +1983,7 @@ long AudioMonitor::Stop()
             return 0;
         }
 
-        // Global class flag , volume reduction inactive
+        // Locks saved sessions volume change.
         m_auto_change_volume_flag = false;
 
 #ifdef VO_ENABLE_EVENTS
@@ -2138,13 +2138,11 @@ long AudioMonitor::Pause()
 }
 
 /*
-    Starts monitoring sessions to change volume on
+    Starts monitoring audio sessions to change volume based on settings.
 
-    Each time we start the monitor we refresh all current sessions (useful when not using events too)
-        auto_change_volume_flag indicates on class level if we are currently
-        changing volume or not, if its false it means AudioSession::ApplyVolumeSettings
-        will have no effect and all sessions will be at default level.
-    If not, it means we will change sessions volume every time an event o start is triggered.
+    Each time we Start the monitor from a Stop we refresh all current sessions (useful when not using events too)
+    We also unlock volume change flag, so events or settings can change monitored sessions volume.
+    Finally we automatically start applying settings on current audio sessions.
 */
 long AudioMonitor::Start()
 {
