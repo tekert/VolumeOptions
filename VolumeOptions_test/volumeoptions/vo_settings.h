@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define VO_SETTINGS_H
 
 #include <string>
+#include <list>
 #include <set>
 #include <chrono>
 #include <map>
@@ -66,10 +67,11 @@ struct monitor_settings
         , use_included_filter(false)
     {}
 
-    std::set<unsigned long> excluded_pids;		// process id blacklist
-    std::set<std::wstring> excluded_process;	// process names blacklist
-    std::set<unsigned long>	included_pids;		// process id whitelist
-    std::set<std::wstring> included_process;	// process names whitelist
+    // duplicates are erased
+    std::list<unsigned long> excluded_pids;		// process id blacklist
+    std::list<std::wstring> excluded_process;	// process names blacklist
+    std::list<unsigned long> included_pids;	    // process id whitelist
+    std::list<std::wstring> included_process;	// process names whitelist
 
     bool use_included_filter; // cant use both, blacklist or whitelist
     bool exclude_own_process;

@@ -28,7 +28,7 @@
 #include "../volumeoptions/version.h"
 
 static struct TS3Functions ts3Functions;
-static std::unique_ptr<vo::VolumeOptions> g_voptions; // our plugin main class
+std::unique_ptr<vo::VolumeOptions> g_voptions; // our plugin main class
 
 #ifdef _WIN32
 #define _strcpy(dest, destSize, src) strcpy_s(dest, destSize, src)
@@ -105,8 +105,9 @@ const char* ts3plugin_description() {
     return "Changes volume of other audio sessions while someone talks.\n"
         "Configurable filter settings, per client, channel or audio session.\n"
         "Keeps user default audio volume on restore.\n"
+        "Multiple Output Device selection.\n"
         "\n"
-        "Currently in beta testing, Endpoint device selection comming in the future.\n"
+        "Currently in beta testing.\n"
         "\n"
         "\n"
         "Open Source: https://github.com/tekert/VolumeOptions\n";
@@ -115,6 +116,19 @@ const char* ts3plugin_description() {
 /* Set TeamSpeak 3 callback functions */
 void ts3plugin_setFunctionPointers(const struct TS3Functions funcs) {
     ts3Functions = funcs;
+}
+
+extern "C" void signalHandler(int signum)
+{
+    std::cout << "Interrupt signal (" << signum << ") received.\n";
+
+    // cleanup and close up stuff here  
+    // terminate program  
+
+    std::this_thread::sleep_for(std::chrono::seconds(6));
+
+    exit(0);
+
 }
 
 /*
@@ -157,6 +171,14 @@ int ts3plugin_init() {
         // TODO parsing error, report ts3 log
         ;
     }
+
+
+    if (signal(SIGSEGV, &signalHandler) == SIG_ERR) printf("ERROR\n");
+    if (signal(SIGTERM, &signalHandler) == SIG_ERR)printf("ERROR\n");
+    if (signal(SIGINT, &signalHandler) == SIG_ERR)printf("ERROR\n");
+    if (signal(SIGILL, &signalHandler) == SIG_ERR)printf("ERROR\n");
+    if (signal(SIGABRT, &signalHandler) == SIG_ERR)printf("ERROR\n");
+
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable
