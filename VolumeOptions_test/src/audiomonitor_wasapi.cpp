@@ -789,8 +789,9 @@ done:
 
 AudioSession::~AudioSession()
 {
-    if (!m_session_dead)
+    if (!m_session_dead) {
         dwprintf(L"~AudioSession:: PID[%d]Deleting Session %s\n", getPID(), getSIID().c_str());
+    }
 
     ShutdownSession();
 }

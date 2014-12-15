@@ -53,6 +53,7 @@ class VolumeOptions
 {
 public:
 
+    // settings will be used as default if no settings is provided when adding monitors.
     VolumeOptions(const volume_options_settings& settings);
     VolumeOptions();
     ~VolumeOptions();
@@ -76,11 +77,23 @@ public:
     int process_talk(const bool talk_status, const uniqueServerID_t uniqueServerID, const channelID_t channelID,
         const uniqueClientID_t uniqueClientID, const bool ownclient = false);
 
-    vo::volume_options_settings get_current_settings() const;
-    void set_settings(vo::volume_options_settings& settings);
-    int set_settings_from_file(const std::string &configIniFile, bool create_if_notfound = false);
-    void set_config_file(const std::string &configFile);
-    void save_settings_to_file(const std::string &configFile) const;
+#ifdef _WIN32
+    bool add_device_monitor(const std::wstring& deviceid);
+    void remove_device_monitor(const std::wstring& deviceid);
+
+    void get_monitored_devices(std::set<std::wstring>& current_deviceids);
+#endif
+
+    void get_selected_devices(std::set<std::wstring>& selected_devices);
+    void get_selected_devices(std::set<std::string>& selected_devices);
+
+    volume_options_settings get_current_settings() const;
+    monitor_settings get_current_settings(const std::string& device) const;
+    void set_settings(volume_options_settings& settings);
+    void set_settings(monitor_settings& settings, const std::string& device = "");
+
+    int load_config_file(const std::string &configIniFile, bool create_if_notfound = false);
+    void set_config_file(const std::string &configIniFile);
 
     void restore_default_volume();
     float get_global_volume_reduction() const;
@@ -103,27 +116,53 @@ public:
 
 private:
 
-    void create_config_file(std::fstream& in);
-    volume_options_settings parse_ptree(boost::property_tree::ptree& pt,
-        const volume_options_settings& origin_settings = volume_options_settings()) const;
-    inline volume_options_settings ptree_to_settings(boost::property_tree::ptree& pt) const;
-    inline boost::property_tree::ptree settings_to_ptree(const volume_options_settings& settings) const;
+    struct config_settings_t;
 
+    config_settings_t parse_ptree(boost::property_tree::ptree& pt,
+        const config_settings_t& origin_settings = config_settings_t()) const;
+    inline config_settings_t ptree_to_config(boost::property_tree::ptree& pt) const;
+    inline boost::property_tree::ptree config_to_ptree(const config_settings_t& settings) const;
+
+    // Will load or save state from config object
+    void load_config(config_settings_t& config);
+    void save_config(config_settings_t& config) const;
+
+    void resume_monitors();
+    void pause_monitors();
     int apply_status(); // starts or stops audio monitor based on ts3 talking statuses.
 
-    std::shared_ptr<AudioMonitor> m_paudio_monitor;
+    //std::shared_ptr<AudioMonitor> m_paudio_monitor;
+    // map of deviceids or output device name to audio monitor.
+    std::unordered_map<std::string, std::shared_ptr<AudioMonitor>> m_audio_monitors;
 
-    vo::volume_options_settings m_vo_settings;
+    // Used when saving settings to disk
+    // On load, this is used to resume selected audio monitors and settings
+    struct config_settings_t
+    {
+        config_settings_t()
+        {
+            selected_devices.insert("default");
+        }
 
-    /* current disabled and enabled clients talking */
+        // Stores current settings to save
+        volume_options_settings vo_settings;
+
+        //  std::unordered_map<std::string, vo::monitor_settings> device_monitor_settings;
+
+        // Stores currently monitored devices to save (on windows this stores device ids)
+        std::set<std::string> selected_devices;
+    };
+    config_settings_t m_config;
+
+    // current disabled and enabled clients talking
     std::vector<std::unordered_set<uniqueClientID_t>> m_clients_talking; // 0 = status::DISABLED, 1 = status::ENABLED
-    /* clients marked as disabled */
+    // clients marked as disabled
     std::unordered_set<uniqueClientID_t> m_ignored_clients;
 
     typedef std::unordered_map<uniqueChannelID_t, std::unordered_set<uniqueClientID_t>> channel_info;
-    /* current enabled and disabled channels with activity (someone talking in it) */
+    // current enabled and disabled channels with activity (someone talking in it)
     std::vector<channel_info> m_channels_with_activity; // 0 = status::DISABLED, 1 = status::ENABLED
-    /* channels marked as disabled */
+    // channels marked as disabled
     std::unordered_set<uniqueChannelID_t> m_ignored_channels;
 
     mutable status m_status;
@@ -131,7 +170,6 @@ private:
 
     std::string m_config_filename;
 
-    /* not realy needed, teams speak sdk uses 1 thread per plugin on callbacks */
     mutable std::recursive_mutex m_mutex;
 };
 
@@ -139,13 +177,15 @@ private:
 // free functions to help parsing of process and pid names in a string separated by ";"
 
 // strings list separed by ";"  to  set
-void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s);
-void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
-void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l);
+void parse_string_list(const std::string& process_list, std::set<std::wstring>& set_s);
+void parse_string_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
+void parse_string_list(const std::string& process_list, std::set<std::string>& set_s);
+void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set_l);
 
 // set  to  strings list separed by ";"
-void parse_set(const std::set<std::wstring>& set_s, std::string& process_list);
-void parse_set(const std::set<unsigned long>& set_l, std::string& pid_list);
+void parse_set(const std::set<std::wstring>& set_s, std::string& list);
+void parse_set(const std::set<std::string>& set_s, std::string& list);
+void parse_set(const std::set<unsigned long>& set_l, std::string& list);
 
 
 } // end namespace vo

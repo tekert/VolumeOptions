@@ -57,14 +57,14 @@ struct DialogID
     DWORD thread_id;
 };
 static std::unordered_map<DWORD, DialogID> g_opened_hwnds;
-void SaveOpenedDialog(HWND handle)
+void StoreDialog(HWND handle)
 {
     DialogID id;
     id.hDlg = handle;
     id.thread_id = GetCurrentThreadId();
     g_opened_hwnds[id.thread_id] = id;
 }
-void DeleteSavedDialog(HWND handle)
+void DeleteStoredDialog(HWND handle)
 {
     DialogID id;
     id.hDlg = handle;
@@ -383,10 +383,57 @@ void UpdateSliderControls(HWND hDlg)
     UpdateSliderStaticLabel(hDlg, hVolSlider);
 }
 
+static std::unordered_map<std::wstring, std::wstring> g_audio_endpoints; // id -> name
+static std::vector<std::wstring> g_audio_device_ids; // 0 -> default, >0 ids
+
+void UpdateListBox(HWND hDlg)
+{
+    HWND hList = GetDlgItem(hDlg, IDC_LIST_ENDPOINTS);
+
+    SendMessage(hList, LB_RESETCONTENT, 0, 0);
+
+    g_audio_device_ids.clear();
+    g_audio_endpoints.clear();
+
+    // Add default output, id will be 'default'.
+    g_audio_device_ids.push_back(std::wstring(L"default"));
+    LRESULT pos = SendMessage(hList, LB_ADDSTRING, 0, (LPARAM)L"Default");
+    SendMessage(hList, LB_SETITEMDATA, (WPARAM)pos, (LPARAM)g_audio_device_ids.size() - 1);
+
+    vo::AudioMonitor::GetEndpointsInfo(g_audio_endpoints);
+    for (auto i : g_audio_endpoints)
+    {
+        g_audio_device_ids.push_back(i.first);
+        LRESULT pos = SendMessage(hList, LB_ADDSTRING, 0, (LPARAM)i.second.c_str());
+        SendMessage(hList, LB_SETITEMDATA, (WPARAM)pos, (LPARAM)g_audio_device_ids.size() -1 );
+    }
+}
+
+void SelectListBoxItems(HWND hDlg, const std::set<std::wstring>& select_devices)
+{
+    HWND hList = GetDlgItem(hDlg, IDC_LIST_ENDPOINTS);
+
+    // Select devices from list box, we compare list data using g_audio_device_ids
+    for (auto device : select_devices)
+    {
+        // NOTE: default device has 'default' string as key or data in both structures
+
+        auto it = std::find(g_audio_device_ids.begin(), g_audio_device_ids.end(), device);
+        if (it != g_audio_device_ids.end())
+        {
+            // this vector uses indexes equal to listbox indexes for data
+            size_t index = std::distance(g_audio_device_ids.begin(), it);
+
+            SendMessage(hList, LB_SETSEL, TRUE, index);
+        }
+    }
+}
+
 /*
     Initializes Dialog controls values from VolumeOptions settings
 */
-void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings)
+void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings,
+    const std::set<std::wstring>& select_devices)
 {
     // settings shortcuts
     const vo::session_settings& ses_settings = vo_settings.monitor_settings.ses_global_settings;
@@ -399,6 +446,10 @@ void InitControlValues(HWND hDlg, const vo::volume_options_settings& vo_settings
     else
         CheckDlgButton(hDlg, IDC_CHECK_EXCLUDEOWNCLIENT, BST_UNCHECKED);
 
+    // ------ Endpoint devices list
+
+    UpdateListBox(hDlg);
+    SelectListBoxItems(hDlg, select_devices);
 
     // ------ Audio Monitor settings
 
@@ -476,13 +527,13 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
 
     UINT state;
 
+    // ------ Retrieve TS3 settings
 
     state = IsDlgButtonChecked(hDlg, IDC_CHECK_EXCLUDEOWNCLIENT);
     if (state == BST_CHECKED)
         vo_settings.exclude_own_client = true;
     else
         vo_settings.exclude_own_client = false;
-
 
     // ------- Retrieve Session settings group
 
@@ -540,15 +591,76 @@ void UpdateSettings(HWND hDlg, vo::volume_options_settings& vo_settings)
     // included list
     memset(process_names, 0, LIST_MAX_SIZE);
     GetDlgItemText(hDlg, IDC_EDIT_INCLUDEFILTER, process_names, LIST_MAX_SIZE);
-    vo::parse_process_list(process_names, mon_settings.included_process);
+    vo::parse_string_list(process_names, mon_settings.included_process);
     dwprintf(L"excluded process_names: %s\n\n", process_names);
 
     // excluded list
     memset(process_names, 0, LIST_MAX_SIZE);
     GetDlgItemText(hDlg, IDC_EDIT_EXCLUDEFILTER, process_names, LIST_MAX_SIZE);
-    vo::parse_process_list(process_names, mon_settings.excluded_process);
+    vo::parse_string_list(process_names, mon_settings.excluded_process);
     dwprintf(L"included process_names: %s\n\n", process_names);
 
+}
+
+/*
+    Returns a set of selected device ids (unique), from listbox data.
+*/
+std::set<std::wstring> GetDeviceSelection(HWND hDlg)
+{
+    HWND hList = GetDlgItem(hDlg, IDC_LIST_ENDPOINTS);
+
+    int count_selected;
+    int selected_indexes[256] = { 0 };
+    int count_selected_indexes;
+    wchar_t ws_device_name[512] = { 0 };
+
+    std::set<std::wstring> selected_deviceids;
+
+    count_selected = (int)SendMessage(hList, LB_GETSELCOUNT, 0, 0);
+    count_selected_indexes = (int)SendMessage(hList, LB_GETSELITEMS, 256, (LPARAM)selected_indexes);
+
+    for (int i = 0; i < count_selected_indexes; i++)
+    {
+        // Get stored item data.
+        std::size_t vi = (std::size_t)SendMessage(hList, LB_GETITEMDATA, selected_indexes[i], 0);
+
+        SendMessage(hList, LB_GETTEXT, selected_indexes[i], (LPARAM)ws_device_name);
+        dwprintf(L"Selection: %s  -> id: %s\n", ws_device_name, g_audio_device_ids[vi].c_str());
+
+        // Get Device Id from stored index
+        selected_deviceids.insert(g_audio_device_ids[vi]);
+    }
+
+    return selected_deviceids;
+}
+
+void UpdateMonitoredDevices(vo::VolumeOptions* pvo, const std::set<std::wstring>& dialog_selected_device_ids)
+{
+    // Get current selected devices from VolumeOptions (default will be marked as 'default' string)
+    std::set<std::wstring> vo_selected_devices;
+    pvo->get_selected_devices(vo_selected_devices);
+
+    // First remove those not selected from VolumeOptions
+    for (auto vo_id : vo_selected_devices)
+    {
+        // if this current monitored device was not selected, remove it. (default is also marked as 'default' here)
+        if (!dialog_selected_device_ids.count(vo_id))
+        {
+            if (vo_id == L"default")
+                pvo->remove_device_monitor(L"");
+            else
+                pvo->remove_device_monitor(vo_id);
+        }
+    }
+
+    // Now re add those selected
+    for (auto addid : dialog_selected_device_ids)
+    {
+        if (addid == L"default")
+            pvo->add_device_monitor(L"");
+        else
+            pvo->add_device_monitor(addid);
+    }
 }
 
 INT_PTR CALLBACK VODialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -568,10 +680,38 @@ INT_PTR CALLBACK VODialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
             return TRUE;
 
         case IDOK:
+        {
             UpdateSettings(hDlg, vo_settings);
             pvo->set_settings(vo_settings);
+
+            std::set<std::wstring> device_ids = GetDeviceSelection(hDlg);
+            UpdateMonitoredDevices(pvo, device_ids);
+
             SendMessage(hDlg, WM_CLOSE, 0, 0);
+        }
             return TRUE;
+
+        case IDC_LIST_ENDPOINTS:
+        {
+            switch (HIWORD(wParam))
+            {
+            case LBN_SELCHANGE:
+            {
+                HWND hwndList = GetDlgItem(hDlg, IDC_LIST_ENDPOINTS);
+
+                // Get selected index.
+                int lbItem = (int)SendMessage(hwndList, LB_GETCURSEL, 0, 0);
+
+                // Get item data.
+                std::size_t i = (std::size_t)SendMessage(hwndList, LB_GETITEMDATA, lbItem, 0);
+
+                // Do something with the data from Roster[i]
+                dwprintf(L"%s\n", g_audio_device_ids[i].c_str());
+
+                return TRUE;
+            }
+            }
+        }
 
        // case IDC_CHECK_EXCLUDEOWNCLIENT:
            // return TRUE;
@@ -671,11 +811,14 @@ INT_PTR CALLBACK VODialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
         pvo = (vo::VolumeOptions*)lParam;
         vo_settings = pvo->get_current_settings();
 
+        std::set<std::wstring> select_devices;
+        pvo->get_selected_devices(select_devices);
+
         CenterWindow(hDlg);
 
-        InitControlValues(hDlg, vo_settings);
+        InitControlValues(hDlg, vo_settings, select_devices);
 
-        SaveOpenedDialog(hDlg);
+        StoreDialog(hDlg);
 
         return TRUE;
     }
@@ -693,7 +836,7 @@ INT_PTR CALLBACK VODialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
     break;
 
     case WM_DESTROY:
-        DeleteSavedDialog(hDlg);
+        DeleteStoredDialog(hDlg);
         PostQuitMessage(0);
         return TRUE;
 

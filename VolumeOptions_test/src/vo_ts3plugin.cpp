@@ -191,6 +191,7 @@ VolumeOptions::config_settings_t VolumeOptions::ptree_to_config(boost::property_
 {
     return parse_ptree(pt, m_config); // use m_config as default for missing config
 }
+
 inline
 boost::property_tree::ptree VolumeOptions::config_to_ptree(const VolumeOptions::config_settings_t& settings) const
 {
@@ -220,13 +221,12 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
     return origin_value;
 }
 
-// stores or retrieves a set of strings from ptree (the set it parsed to a list of strings separated by semicolon)
+// stores or retrieves a set of strings from ptree (the set it parsed from a list of strings separated by semicolon)
+// can only we used for: string, wstring or unsigned long
 template <typename T>
 std::set<T> ini_put_or_get_set(boost::property_tree::ptree& pt, const std::string& path,
     const std::set<T>& origin_set)
 {
-    // TODO, limit T so string or wstring or unsigned long
-
     std::set<T> parsed_set;
 
     // strings list to retrieve and strings list to use for default case
@@ -235,7 +235,7 @@ std::set<T> ini_put_or_get_set(boost::property_tree::ptree& pt, const std::strin
     parse_set(origin_set, origin_string_list);
     // Get strings lists from ptree, origin_string_list will be used if value is missing from ptree.
     string_list = ini_put_or_get<std::string>(pt, path, origin_string_list);
-    // Parse string list separated by semicolon to set of strings
+    // Parse string list separated by semicolon to set of strings or ints
     parse_string_list(string_list, parsed_set);
 
     return parsed_set;
@@ -276,7 +276,7 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     // bool: do we exclude ourselfs?
     vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", def_vo_settings.exclude_own_client);
 
-    // Parse output device list to set ('default' string means default device )
+    // Parse output device list to set of strings ('default' string means default device )
     parsed_config.selected_devices = ini_put_or_get_set<std::string>(pt, "plugin.monitor_output_devices", origin_config.selected_devices);
 
 
@@ -305,21 +305,21 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     // bool: Cant use both filters.
     mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    // Retrieve set of string (ini uses a list of string separated by semicolon)
+    // Retrieve set of string or int in case of pids (ini uses a list of strings separated by semicolon)
     mon_settings.included_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.included_process", def_mon_settings.included_process);
     mon_settings.excluded_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.excluded_process", def_mon_settings.excluded_process);
     mon_settings.included_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.included_pids", def_mon_settings.included_pids);
     mon_settings.excluded_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.excluded_pids", def_mon_settings.excluded_pids);
 
 #ifdef _DEBUG
-    dprintf("\n\n\n\n");
+    dprintf("\n\n\n Parsed values from ptree:\n");
     for (auto& section : pt)
     {
         std::cout << "section.first= " << '[' << section.first << "]\n";
         for (auto& key : section.second)
             std::cout << "key.first="<< key.first << "    key.second.get_value<std::string>()=" << key.second.get_value<std::string>() << "\n";
     }
-    dprintf("\n\n\n\n");
+    dprintf("\n\n\n");
 #endif
 
     return parsed_config;
@@ -431,31 +431,21 @@ void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set
 }
 
 /*
-    if device is empty, it will set settings on all current audio monitors
     TODO: rewrite and redesign this
 */
 void VolumeOptions::set_settings(monitor_settings& settings, const std::string& device)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    if (!device.empty())
-    {
-        // monitor_settings will be parsed, applied and updated with actual settings applied.
-        try { m_audio_monitors.at(device)->SetSettings(settings); }
-        catch (std::out_of_range) {
-            printf("VO_PLUGIN: set_settings()  Device %s not found.\n", device.c_str());
-        }
-    }
-    else  // apply settings to all monitors
-    {
-        for (auto m : m_audio_monitors)
-            m.second->SetSettings(m_config.vo_settings.monitor_settings);
+    try { m_audio_monitors.at(device)->SetSettings(settings); }
+    catch (std::out_of_range) {
+        printf("VO_PLUGIN: set_settings()  Device %s not found.\n", device.c_str());
     }
 }
 
 /*
     Sets settings for VolumeOptions
-    Applies settings for current and new audio monitors. (TODO: separate from this)
+    Applies settings for current and new audio monitors.
 */
 void VolumeOptions::set_settings(volume_options_settings& settings)
 {
@@ -464,6 +454,7 @@ void VolumeOptions::set_settings(volume_options_settings& settings)
     m_config.vo_settings = settings;
 
     // TODO: individual settings per monitor
+    // TODO: remove this when individual settings are done.
     for (auto m : m_audio_monitors)
         m.second->SetSettings(m_config.vo_settings.monitor_settings);
 }
@@ -566,7 +557,7 @@ bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
         m_audio_monitors[device] = paudio_monitor;
 
         std::wstring used_id = paudio_monitor->GetDeviceID();
-        wprintf(L"VO_PLUGIN: Added Device ID: %s\n - Name: %s\n\n", used_id.c_str(),
+        wprintf(L"VO_PLUGIN: Added Device ID:\n%s\n - Name: %s\n\n", used_id.c_str(),
             AudioMonitor::GetDeviceName(used_id).c_str());
 
         added = true;
@@ -607,7 +598,10 @@ void VolumeOptions::remove_device_monitor(const std::wstring& wdevice_id)
 
     if (m_audio_monitors.count(device))
     {
-        // TODO: individual settings per monitor
+        std::wstring used_id = m_audio_monitors[device]->GetDeviceID();
+        wprintf(L"VO_PLUGIN: Removed Device ID: %s\n - Name: %s\n\n", used_id.c_str(),
+            AudioMonitor::GetDeviceName(used_id).c_str());
+
         m_audio_monitors.erase(device);
     }
 

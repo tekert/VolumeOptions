@@ -150,7 +150,7 @@ int ts3plugin_init() {
         return 1;
 
     //  it will create and/or update the file if some options are missing.
-    int status = g_voptions->set_settings_from_file(configFile, true); // true = create file if it doesnt exists
+    int status = g_voptions->load_config_file(configFile, true); // true = create file if it doesnt exists
     if (status == 0)
     {
         printf("VO_PLUGIN: Error parsing ini file. using default values (delete file to recreate)\n");
