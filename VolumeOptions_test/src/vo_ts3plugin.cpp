@@ -220,6 +220,27 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
     return origin_value;
 }
 
+// stores or retrieves a set of strings from ptree (the set it parsed to a list of strings separated by semicolon)
+template <typename T>
+std::set<T> ini_put_or_get_set(boost::property_tree::ptree& pt, const std::string& path,
+    const std::set<T>& origin_set)
+{
+    // TODO, limit T so string or wstring or unsigned long
+
+    std::set<T> parsed_set;
+
+    // strings list to retrieve and strings list to use for default case
+    std::string string_list, origin_string_list;
+    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
+    parse_set(origin_set, origin_string_list);
+    // Get strings lists from ptree, origin_string_list will be used if value is missing from ptree.
+    string_list = ini_put_or_get<std::string>(pt, path, origin_string_list);
+    // Parse string list separated by semicolon to set of strings
+    parse_string_list(string_list, parsed_set);
+
+    return parsed_set;
+}
+
 /*
     Will parse ptree to settings or origin_config to ptree.
 
@@ -255,16 +276,8 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     // bool: do we exclude ourselfs?
     vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", def_vo_settings.exclude_own_client);
 
-    // Parse output device list to monitor ('default' means default device )
-    std::string monitor_devices, def_monitor_devices;
-    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
-    parse_set(origin_config.selected_devices, def_monitor_devices);
-    // Get strings lists from ptree
-    monitor_devices = ini_put_or_get<std::string>(pt, "plugin.monitor_output_devices", def_monitor_devices);
-    // Clear to overwrite
-    parsed_config.selected_devices.clear();
-    // Parse string list to settings
-    parse_string_list(monitor_devices, parsed_config.selected_devices);
+    // Parse output device list to set ('default' string means default device )
+    parsed_config.selected_devices = ini_put_or_get_set<std::string>(pt, "plugin.monitor_output_devices", origin_config.selected_devices);
 
 
     // ------ Session Settings
@@ -289,38 +302,14 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     // bool: Dont know why but... yep..  1 enable, 0 disable
     mon_settings.exclude_own_process = ini_put_or_get<bool>(pt, "AudioMonitor.exclude_own_process", def_mon_settings.exclude_own_process);
 
-    // i know, this is a bit messy and error prone, but i think is readable.
-    std::string included_process_list, def_included_process_list;
-    std::string excluded_process_list, def_excluded_process_list;
-    std::string included_pid_list, def_included_pid_list;
-    std::string excluded_pid_list, def_excluded_pid_list;
-
-    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
-    parse_set(def_mon_settings.included_process, def_included_process_list);
-    parse_set(def_mon_settings.excluded_process, def_excluded_process_list);
-    parse_set(def_mon_settings.included_pids, def_included_pid_list);
-    parse_set(def_mon_settings.excluded_pids, def_excluded_pid_list);
-
     // bool: Cant use both filters.
     mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
-    // Get strings lists from ptree
-    included_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_process", def_included_process_list);
-    excluded_process_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_process", def_excluded_process_list);
-    included_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.included_pids", def_included_pid_list);
-    excluded_pid_list = ini_put_or_get<std::string>(pt, "AudioMonitor.excluded_pids", def_excluded_pid_list);
-              
-    // clear to overwrite current process values
-    mon_settings.included_process.clear();
-    mon_settings.excluded_process.clear();
-    parse_string_list(included_process_list, mon_settings.included_process);
-    parse_string_list(excluded_process_list, mon_settings.excluded_process);
-
-    // clear to overwrite current pid values
-    mon_settings.included_pids.clear();
-    mon_settings.excluded_pids.clear();
-    parse_int_list(included_pid_list, mon_settings.included_pids);
-    parse_int_list(excluded_pid_list, mon_settings.excluded_pids);
+    // Retrieve set of string (ini uses a list of string separated by semicolon)
+    mon_settings.included_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.included_process", def_mon_settings.included_process);
+    mon_settings.excluded_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.excluded_process", def_mon_settings.excluded_process);
+    mon_settings.included_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.included_pids", def_mon_settings.included_pids);
+    mon_settings.excluded_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.excluded_pids", def_mon_settings.excluded_pids);
 
 #ifdef _DEBUG
     dprintf("\n\n\n\n");
@@ -421,7 +410,7 @@ void parse_string_list(const std::string& process_list, std::set<std::string>& s
 /*
     string list separed by ; to int set
 */
-void parse_int_list(const std::string& pid_list, std::set<unsigned long>& set_l)
+void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set_l)
 {
     boost::char_separator<char> sep(";");
     boost::tokenizer<boost::char_separator<char>> pidtokens(pid_list, sep);
@@ -510,10 +499,12 @@ void VolumeOptions::load_config(VolumeOptions::config_settings_t& config)
 }
 
 #ifdef _WIN32
-// TODO: load device from name or device id. make two methods
-// TODO2: maybe move this to DeviceManager
 
-// Returns true y already added or added, empty to add current default device
+// TODO: load device from name or device id. make two methods
+// TODO2: maybe rewrite and move this to DeviceManager
+
+// Returns true y already added or added
+// 'wdevice_id' must be empty to add current default device
 bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
 {
     bool added = false;
@@ -525,7 +516,7 @@ bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
     const std::string device = wstring_to_utf8(wdevice_id);
 
     // If we want to re add the default device check if its the same as current system default
-    if (wdevice_id.empty() && m_audio_monitors.count(""))
+    if (device.empty() && m_audio_monitors.count(""))
     {
         // Get current system default output endpoint (ID -> name)
         std::pair<std::wstring, std::wstring> default_endpoint;
@@ -541,7 +532,7 @@ bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
         {
             dwprintf(L"VO_PLUGIN: Already monitoring this default device:\n - Name: %s\n\n", 
                 AudioMonitor::GetDeviceName(using_defid).c_str());
-            return true; // already monitoring the correct default
+            return true; // already monitoring system default
         }
         else
         {
@@ -555,7 +546,7 @@ bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
     }
     else
     {   // If we are already monitoring this device, return
-        if (m_audio_monitors.count(wstring_to_utf8(wdevice_id)))
+        if (m_audio_monitors.count(device))
         {
             dwprintf(L"VO_PLUGIN: Already monitoring this device:\n - Name: %s\n\n",
                 AudioMonitor::GetDeviceName(wdevice_id).c_str());

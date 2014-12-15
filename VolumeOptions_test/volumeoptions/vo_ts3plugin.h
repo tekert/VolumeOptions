@@ -180,7 +180,7 @@ private:
 void parse_string_list(const std::string& process_list, std::set<std::wstring>& set_s);
 void parse_string_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
 void parse_string_list(const std::string& process_list, std::set<std::string>& set_s);
-void parse_int_list(const std::string& pid_list, std::set<unsigned long>& set_l);
+void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set_l);
 
 // set  to  strings list separed by ";"
 void parse_set(const std::set<std::wstring>& set_s, std::string& list);
