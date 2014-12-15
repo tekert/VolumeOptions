@@ -227,21 +227,21 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
 // stores or retrieves a set of strings from ptree (the set it parsed from a list of strings separated by semicolon)
 // can only we used for: string, wstring or unsigned long
 template <typename T>
-std::list<T> ini_put_or_get_list(boost::property_tree::ptree& pt, const std::string& path,
-    const std::list<T>& origin_set)
+std::set<T> ini_put_or_get_set(boost::property_tree::ptree& pt, const std::string& path,
+    const std::set<T>& origin_set)
 {
-    std::list<T> parsed_list;
+    std::set<T> parsed_set;
 
     // strings list to retrieve and strings list to use for default case
     std::string string_list, origin_string_list;
     // Convert set to list of strings separated by ; to use them in case of missing ptree value.
-    parse_list(origin_set, origin_string_list);
+    parse_set(origin_set, origin_string_list);
     // Get strings lists from ptree, origin_string_list will be used if value is missing from ptree.
     string_list = ini_put_or_get<std::string>(pt, path, origin_string_list);
     // Parse string list separated by semicolon to set of strings or ints
-    parse_string_list(string_list, parsed_list);
+    parse_string_list(string_list, parsed_set);
 
-    return parsed_list;
+    return parsed_set;
 }
 
 /*
@@ -280,7 +280,7 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", def_vo_settings.exclude_own_client);
 
     // Parse output device list to set of strings ('default' string means default device )
-    parsed_config.selected_devices = ini_put_or_get_list<std::string>(pt, "plugin.monitor_output_devices", origin_config.selected_devices);
+    parsed_config.selected_devices = ini_put_or_get_set<std::string>(pt, "plugin.monitor_output_devices", origin_config.selected_devices);
 
 
     // ------ Session Settings
@@ -309,10 +309,10 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
     mon_settings.use_included_filter = ini_put_or_get<bool>(pt, "AudioMonitor.use_included_filter", def_mon_settings.use_included_filter);
 
     // Retrieve set of string or int in case of pids (ini uses a list of strings separated by semicolon)
-    mon_settings.included_process = ini_put_or_get_list<std::wstring>(pt, "AudioMonitor.included_process", def_mon_settings.included_process);
-    mon_settings.excluded_process = ini_put_or_get_list<std::wstring>(pt, "AudioMonitor.excluded_process", def_mon_settings.excluded_process);
-    mon_settings.included_pids = ini_put_or_get_list<unsigned long>(pt, "AudioMonitor.included_pids", def_mon_settings.included_pids);
-    mon_settings.excluded_pids = ini_put_or_get_list<unsigned long>(pt, "AudioMonitor.excluded_pids", def_mon_settings.excluded_pids);
+    mon_settings.included_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.included_process", def_mon_settings.included_process);
+    mon_settings.excluded_process = ini_put_or_get_set<std::wstring>(pt, "AudioMonitor.excluded_process", def_mon_settings.excluded_process);
+    mon_settings.included_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.included_pids", def_mon_settings.included_pids);
+    mon_settings.excluded_pids = ini_put_or_get_set<unsigned long>(pt, "AudioMonitor.excluded_pids", def_mon_settings.excluded_pids);
 
 #ifdef _DEBUG
     dprintf("\n\n\n Parsed values from ptree:\n");
@@ -331,34 +331,34 @@ VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree
 /*
     wstring set to string list separated by ;
 */
-void parse_list(const std::list<std::wstring>& list_ws, std::string& list)
+void parse_set(const std::set<std::wstring>& set_s, std::string& list)
 {
-    for (auto s : list_ws)
+    for (auto s : set_s)
         list += wstring_to_utf8(s) + ";";
 }
 
 /*
     string set to string list separated by ;
 */
-void parse_list(const std::list<std::string>& list_s, std::string& list)
+void parse_set(const std::set<std::string>& set_s, std::string& list)
 {
-    for (auto s : list_s)
+    for (auto s : set_s)
         list += s + ";";
 }
 
 /*
     int set to string list separated by ;
 */
-void parse_list(const std::list<unsigned long>& list_l, std::string& list)
+void parse_set(const std::set<unsigned long>& set_l, std::string& list)
 {
-    for (auto l : list_l)
+    for (auto l : set_l)
         list += std::to_string(l) + ";";
 }
 
 /*
     wstring list separated by ; to wstring set
 */
-void parse_string_list(const std::wstring& process_list, std::list<std::wstring>& list_ws, bool remove_duplicates)
+void parse_string_list(const std::wstring& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
     typedef boost::tokenizer<boost::char_separator<wchar_t>, std::wstring::const_iterator, std::wstring> wtokenizer;
@@ -370,22 +370,14 @@ void parse_string_list(const std::wstring& process_list, std::list<std::wstring>
         boost::algorithm::trim(pname);
 
         dwprintf(L"parse_process_list: insert: %s\n", pname.c_str());
-        //set_s.insert(pname);
-        list_ws.push_back(pname);
-    }
-
-    if (remove_duplicates)
-    {
-        std::unordered_set<std::wstring> s; // no duplicates
-        list_ws.remove_if(
-            [&](std::wstring n) { return (s.find(n) == s.end()) ? (s.insert(n), false) : true; });
+        set_s.insert(pname);
     }
 }
 
 /*
     string list separated by ; to wstring set
 */
-void parse_string_list(const std::string& process_list, std::list<std::wstring>& list_ws, bool remove_duplicates)
+void parse_string_list(const std::string& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
     boost::char_separator<char> sep(";");
@@ -396,22 +388,14 @@ void parse_string_list(const std::string& process_list, std::list<std::wstring>&
         boost::algorithm::trim(pname);
 
         dprintf("parse_string_list: insert: %s\n", pname.c_str());
-        //set_s.insert(utf8_to_wstring(pname));
-        list_ws.push_back(utf8_to_wstring(pname));
-    }
-
-    if (remove_duplicates)
-    {
-        std::unordered_set<std::wstring> s; // no duplicates
-        list_ws.remove_if(
-            [&](std::wstring n) { return (s.find(n) == s.end()) ? (s.insert(n), false) : true; });
+        set_s.insert(utf8_to_wstring(pname));
     }
 }
 
 /*
     string list separated by ; to string set
 */
-void parse_string_list(const std::string& process_list, std::list<std::string>& list_s, bool remove_duplicates)
+void parse_string_list(const std::string& process_list, std::set<std::string>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
     boost::char_separator<char> sep(";");
@@ -422,22 +406,14 @@ void parse_string_list(const std::string& process_list, std::list<std::string>& 
         boost::algorithm::trim(pname);
 
         dprintf("parse_string_list: insert: %s\n", pname.c_str());
-        //set_s.insert(pname);
-        list_s.push_back(pname);
-    }
-
-    if (remove_duplicates)
-    {
-        std::unordered_set<std::string> s; // no duplicates
-        list_s.remove_if(
-            [&](std::string n) { return (s.find(n) == s.end()) ? (s.insert(n), false) : true; });
+        set_s.insert(pname);
     }
 }
 
 /*
     string list separed by ; to int set
 */
-void parse_string_list(const std::string& pid_list, std::list<unsigned long>& list_l, bool remove_duplicates)
+void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set_l)
 {
     boost::char_separator<char> sep(";");
     boost::tokenizer<boost::char_separator<char>> pidtokens(pid_list, sep);
@@ -450,18 +426,10 @@ void parse_string_list(const std::string& pid_list, std::list<unsigned long>& li
             boost::algorithm::trim(spid);
 
             dprintf("parse_int_list: insert: %s\n", spid.c_str());
-            //set_l.insert(std::stoi(spid));
-            list_l.push_back(std::stoi(spid));
+            set_l.insert(std::stoi(spid));
         }
         catch (std::invalid_argument) {} // std::stoi TODO: return something and report it to log
         catch (std::out_of_range) {} // std::stoi TODO: return something and report it to log
-    }
-
-    if (remove_duplicates)
-    {
-        std::unordered_set<unsigned long> s; // no duplicates
-        list_l.remove_if(
-            [&](unsigned long n) { return (s.find(n) == s.end()) ? (s.insert(n), false) : true; });
     }
 }
 
@@ -513,14 +481,12 @@ void VolumeOptions::load_config(VolumeOptions::config_settings_t& config)
         if (d == "default")
         {
             if (!add_device_monitor(L""))
-               // m_config.selected_devices.erase("default");
-               m_config.selected_devices.remove("default");
+                m_config.selected_devices.erase("default");
         }
         else
         {
             if (!add_device_monitor(utf8_to_wstring(d)))
-                //m_config.selected_devices.erase(d);
-                m_config.selected_devices.remove(d);
+                m_config.selected_devices.erase(d);
         }
 #endif
     }
@@ -619,11 +585,9 @@ bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
     {
         // Update internal config.
         if (device.empty())
-            //m_config.selected_devices.insert("default");
-            m_config.selected_devices.push_front("default");
+            m_config.selected_devices.insert("default");
         else
-            //m_config.selected_devices.insert(device);
-            m_config.selected_devices.push_back(device);
+            m_config.selected_devices.insert(device);
     }
 
     return added;
@@ -646,11 +610,9 @@ void VolumeOptions::remove_device_monitor(const std::wstring& wdevice_id)
 
     // Update internal config.
     if (device.empty())
-        //m_config.selected_devices.erase("default");
-        m_config.selected_devices.remove("default");
+        m_config.selected_devices.erase("default");
     else
-        //m_config.selected_devices.erase(device);
-        m_config.selected_devices.remove(device);
+        m_config.selected_devices.erase(device);
 }
 
 // These return current monitored device IDs, even for default device.

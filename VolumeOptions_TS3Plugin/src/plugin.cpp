@@ -118,19 +118,6 @@ void ts3plugin_setFunctionPointers(const struct TS3Functions funcs) {
     ts3Functions = funcs;
 }
 
-extern "C" void signalHandler(int signum)
-{
-    std::cout << "Interrupt signal (" << signum << ") received.\n";
-
-    // cleanup and close up stuff here  
-    // terminate program  
-
-    std::this_thread::sleep_for(std::chrono::seconds(6));
-
-    exit(0);
-
-}
-
 /*
  * Custom code called right after loading the plugin. Returns 0 on success, 1 on failure.
  * If the function returns 1 on failure, the plugin will be unloaded again.
@@ -171,14 +158,6 @@ int ts3plugin_init() {
         // TODO parsing error, report ts3 log
         ;
     }
-
-
-    if (signal(SIGSEGV, &signalHandler) == SIG_ERR) printf("ERROR\n");
-    if (signal(SIGTERM, &signalHandler) == SIG_ERR)printf("ERROR\n");
-    if (signal(SIGINT, &signalHandler) == SIG_ERR)printf("ERROR\n");
-    if (signal(SIGILL, &signalHandler) == SIG_ERR)printf("ERROR\n");
-    if (signal(SIGABRT, &signalHandler) == SIG_ERR)printf("ERROR\n");
-
 
     return 0;  /* 0 = success, 1 = failure, -2 = failure but client will not show a "failed to load" warning */
 	/* -2 is a very special case and should only be used if a plugin displays a dialog (e.g. overlay) asking the user to disable

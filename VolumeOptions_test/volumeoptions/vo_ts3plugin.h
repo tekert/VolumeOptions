@@ -33,9 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <fstream>
 #include <mutex>
-#include <set>
 #include <unordered_set>
-#include <list>
 #include <unordered_map>
 #include <string>
 
@@ -143,8 +141,7 @@ private:
     {
         config_settings_t()
         {
-            //selected_devices.insert("default");
-            selected_devices.push_front("default");
+            selected_devices.insert("default");
         }
 
         // Stores current settings to save
@@ -153,7 +150,7 @@ private:
         //  std::unordered_map<std::string, vo::monitor_settings> device_monitor_settings;
 
         // Stores currently monitored devices to save (on windows this stores device ids)
-        std::list<std::string> selected_devices;
+        std::set<std::string> selected_devices;
     };
     config_settings_t m_config;
 
@@ -180,15 +177,15 @@ private:
 // free functions to help parsing of process and pid names in a string separated by ";"
 
 // strings list separed by ";"  to  set
-void parse_string_list(const std::string& process_list, std::list<std::wstring>& list_s, bool remove_duplicates = true);
-void parse_string_list(const std::wstring& process_list, std::list<std::wstring>& list_s, bool remove_duplicates = true);
-void parse_string_list(const std::string& process_list, std::list<std::string>& list_s, bool remove_duplicates = true);
-void parse_string_list(const std::string& pid_list, std::list<unsigned long>& list_l, bool remove_duplicates = true);
+void parse_string_list(const std::string& process_list, std::set<std::wstring>& set_s);
+void parse_string_list(const std::wstring& process_list, std::set<std::wstring>& set_s);
+void parse_string_list(const std::string& process_list, std::set<std::string>& set_s);
+void parse_string_list(const std::string& pid_list, std::set<unsigned long>& set_l);
 
 // set  to  strings list separed by ";"
-void parse_list(const std::list<std::wstring>& list_s, std::string& list);
-void parse_list(const std::list<std::string>& list_s, std::string& list);
-void parse_list(const std::list<unsigned long>& list_l, std::string& list);
+void parse_set(const std::set<std::wstring>& set_s, std::string& list);
+void parse_set(const std::set<std::string>& set_s, std::string& list);
+void parse_set(const std::set<unsigned long>& set_l, std::string& list);
 
 
 } // end namespace vo
