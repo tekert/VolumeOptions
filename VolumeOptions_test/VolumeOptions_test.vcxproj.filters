@@ -50,6 +50,9 @@
     <ClCompile Include="src\audiomonitor_wasapi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\audio_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="volumeoptions\vo_settings.h">
@@ -92,6 +95,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="volumeoptions\audiomonitor_ipc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="volumeoptions\audio_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

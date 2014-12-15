@@ -57,8 +57,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../volumeoptions/vo_ts3plugin.h"
 
 
-namespace vo
-{
+namespace vo {
+
 
 /////////////////////////	Team Speak 3 Interface	//////////////////////////////////
 
@@ -68,10 +68,8 @@ namespace vo
 VolumeOptions::VolumeOptions(const vo::volume_options_settings& settings)
     : VolumeOptions()
 {
-    m_vo_settings = settings;
+    m_config.vo_settings = settings;
     // nothing to parse from here, audiomonitor settings will be parsed when set.
-
-    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
 }
 
 /* 
@@ -84,20 +82,16 @@ VolumeOptions::VolumeOptions()
 
     m_clients_talking.resize(2); // will hold VolumeOptions::status, 0 or 1
     m_channels_with_activity.resize(2); // will hold VolumeOptions::status, 0 or 1
-
-    // Create the audio monitor and send settings to parse, it will return parsed settings.
-    if (!m_paudio_monitor)
-        m_paudio_monitor = AudioMonitor::create();
 }
 
 VolumeOptions::~VolumeOptions()
 {
     // Save settings on exit.
     if (!m_config_filename.empty())
-        save_settings_to_file(m_config_filename);
+        save_config(m_config);
 
-    // AudioMonitor destructor will do a Stop and automatically restore volume.m_paudio_monitor.
-    m_paudio_monitor.reset();
+    // AudioMonitor destructor will do a Stop and automatically restore volume.
+    m_audio_monitors.clear();
 
     dprintf("\nVolumeOptions destroyed...\n\n");
 }
@@ -117,7 +111,7 @@ void VolumeOptions::set_config_file(const std::string &configFile)
 
     It will create and/or update the file if some options are missing.
 */
-int VolumeOptions::set_settings_from_file(const std::string &configFile, bool create_if_notfound)
+int VolumeOptions::load_config_file(const std::string &configFile, bool create_if_notfound)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
@@ -135,10 +129,9 @@ int VolumeOptions::set_settings_from_file(const std::string &configFile, bool cr
             printf("VO_PLUGIN: Error creating config file %s\n", configFile.c_str()); // TODO: report it to log
         else
         {
-            create_config_file(in);
+            set_config_file(configFile);
+            save_config(m_config);
         }
-
-        set_config_file(configFile);
     }
     else
     {
@@ -150,7 +143,7 @@ int VolumeOptions::set_settings_from_file(const std::string &configFile, bool cr
             boost::property_tree::ptree orig_pt = pt;
 
             // will update ptree if some values where missing
-            m_vo_settings = ptree_to_settings(pt);
+            m_config = ptree_to_config(pt);
 
             // Update ini file if some values were missing.
             if (orig_pt != pt) // NOTE: this comparison can cause warnings depending on included headers
@@ -166,88 +159,25 @@ int VolumeOptions::set_settings_from_file(const std::string &configFile, bool cr
     }
     in.close();
 
-    m_paudio_monitor->SetSettings(m_vo_settings.monitor_settings);
+    // Load parsed or default config
+    load_config(m_config);
 
     return ret;
 }
 
-void VolumeOptions::create_config_file(std::fstream& in)
-{
-    std::lock_guard<std::recursive_mutex> guard(m_mutex);
-
-    if (!in)
-        return;
-
-    // INI parser cant read values with comments on the same line
-    // TODO delete this now.. ini is auto regenerated without comments..
-    in <<
-        "[global]\n"
-        "enabled = 1\n"
-        "\n"
-        "\n"
-        "[plugin]\n"
-        "\n"
-        "# ignore volume change when we talk ? default 1(true)\n"
-        "exclude_own_client = 1\n"
-        "\n"
-        "\n"
-        "\n"
-        "[AudioSessions]\n"
-        "\n"
-        "# from 0.0 to 1.0 default 0.5(50 % )\n"
-        "vol_reduction = 0.5\n"
-        "\n"
-        "# as milliseconds default 400ms\n"
-        "vol_up_delay = 400\n"
-        "\n"
-        "# 0 = take vol as fixed level, 1 = take vol as % default 1(true)\n"
-        "vol_as_percentage = 1\n"
-        "\n"
-        "# recommended on \"1\" use \"0\" only in special cases default 1(true)\n"
-        "change_only_active_sessions = 1\n"
-        "\n"
-        "\n"
-        "\n"
-        "[AudioMonitor]\n"
-        "\n"
-        "# this should be 1 always default 1(true)\n"
-        "exclude_own_process = 1\n"
-        "\n"
-        "# excluded_pids and included_pids takes a list of process IDs\n"
-        "# excluded_process and included_process takes a list of executable names or paths\n"
-        "#\n"
-        "# takes a list separated by \";\"\n"
-        "# in case of process names, can be anything, from full path to name to search in full path\n"
-        "#\n"
-        "# Example:\n"
-        "# excluded_process = process1.exe; C:\\this\\path\\to\\my\\program; _player\n"
-        "# excluded_pids = 432; 5; 5832\n"
-        "\n"
-        "# use exluded or included filters, cant use both for now.\n"
-        "use_included_filter = 0\n"
-        "\n"
-        "excluded_pids =\n"
-        "excluded_process =\n"
-        "\n"
-        "included_pids =\n"
-        "included_process =\n"
-        "\n"
-        "\n"
-        "# takes a list of pairs \"process:volume\" separed by \";\" NOTE: NOT IMPLEMENTED YET.\n"
-        "#volume_list = mymusic.exe:0.4; firefox.exe:0.8\n";
-
-}
-
-void VolumeOptions::save_settings_to_file(const std::string &configFile) const
+/*
+    Saves config to set filename
+*/
+void VolumeOptions::save_config(config_settings_t& config) const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // Converts current class settings to ptree
-    boost::property_tree::ptree pt = settings_to_ptree(m_vo_settings);
+    boost::property_tree::ptree pt = config_to_ptree(config);
 
     try
     {
-        boost::property_tree::write_ini(configFile, pt);
+        boost::property_tree::write_ini(m_config_filename, pt);
     }
     catch (boost::property_tree::ini_parser::ini_parser_error)
     {
@@ -257,15 +187,15 @@ void VolumeOptions::save_settings_to_file(const std::string &configFile) const
 
 // Shortcuts (to be more readable)
 inline
-volume_options_settings VolumeOptions::ptree_to_settings(boost::property_tree::ptree& pt) const
+VolumeOptions::config_settings_t VolumeOptions::ptree_to_config(boost::property_tree::ptree& pt) const
 {
-    return parse_ptree(pt, m_vo_settings);
+    return parse_ptree(pt, m_config); // use m_config as default for missing config
 }
 inline
-boost::property_tree::ptree VolumeOptions::settings_to_ptree(const volume_options_settings& settings) const
+boost::property_tree::ptree VolumeOptions::config_to_ptree(const VolumeOptions::config_settings_t& settings) const
 {
     boost::property_tree::ptree pt;
-    parse_ptree(pt, m_vo_settings);
+    parse_ptree(pt, m_config); // use m_config as origin for all missing config (pt is updated)
 
     return pt;
 }
@@ -291,26 +221,28 @@ T ini_put_or_get(boost::property_tree::ptree& pt, const std::string& path, const
 }
 
 /*
-    Will parse ptree to settings or origin_settings to ptree.
+    Will parse ptree to settings or origin_config to ptree.
 
-    If some options are missing from ptree, it will use origin_settings as default.
+    If some options are missing from ptree, it will use origin_config as default.
     ptree will be updated with missing settings.
-    If ptree is empty, origin_settings can be used to parse seetings to ptree.
+    If ptree is empty, origin_config can be used to parse seetings to ptree.
 
     returns parsed settings.
 */
-volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& pt,
-    const volume_options_settings& origin_settings) const
+VolumeOptions::config_settings_t VolumeOptions::parse_ptree(boost::property_tree::ptree& pt,
+    const config_settings_t& origin_config) const
 {
     using boost::property_tree::ptree;
 
-    volume_options_settings parsed_settings;
+    config_settings_t parsed_config;
 
     // settings shortcuts
-    vo::session_settings& ses_settings = parsed_settings.monitor_settings.ses_global_settings;
-    vo::monitor_settings& mon_settings = parsed_settings.monitor_settings;
-    const vo::session_settings& def_ses_settings = origin_settings.monitor_settings.ses_global_settings;
-    const vo::monitor_settings& def_mon_settings = origin_settings.monitor_settings;
+    vo::session_settings& ses_settings = parsed_config.vo_settings.monitor_settings.ses_global_settings;
+    vo::monitor_settings& mon_settings = parsed_config.vo_settings.monitor_settings;
+    vo::volume_options_settings& vo_settings = parsed_config.vo_settings;
+    const vo::session_settings& def_ses_settings = origin_config.vo_settings.monitor_settings.ses_global_settings;
+    const vo::monitor_settings& def_mon_settings = origin_config.vo_settings.monitor_settings;
+    const vo::volume_options_settings& def_vo_settings = origin_config.vo_settings;
 
     // Using boost property threes, boost::optional version used to fill missing config.
     // http://www.boost.org/doc/libs/1_57_0/doc/html/boost_propertytree/accessing.html
@@ -321,7 +253,18 @@ volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& 
     if (!enabled) m_status = status::DISABLED;
 
     // bool: do we exclude ourselfs?
-    parsed_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", origin_settings.exclude_own_client);
+    vo_settings.exclude_own_client = ini_put_or_get<bool>(pt, "plugin.exclude_own_client", def_vo_settings.exclude_own_client);
+
+    // Parse output device list to monitor ('default' means default device )
+    std::string monitor_devices, def_monitor_devices;
+    // Convert set to list of strings separated by ; to use them in case of missing ptree value.
+    parse_set(origin_config.selected_devices, def_monitor_devices);
+    // Get strings lists from ptree
+    monitor_devices = ini_put_or_get<std::string>(pt, "plugin.monitor_output_devices", def_monitor_devices);
+    // Clear to overwrite
+    parsed_config.selected_devices.clear();
+    // Parse string list to settings
+    parse_string_list(monitor_devices, parsed_config.selected_devices);
 
 
     // ------ Session Settings
@@ -370,14 +313,14 @@ volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& 
     // clear to overwrite current process values
     mon_settings.included_process.clear();
     mon_settings.excluded_process.clear();
-    parse_process_list(included_process_list, mon_settings.included_process);
-    parse_process_list(excluded_process_list, mon_settings.excluded_process);
+    parse_string_list(included_process_list, mon_settings.included_process);
+    parse_string_list(excluded_process_list, mon_settings.excluded_process);
 
     // clear to overwrite current pid values
     mon_settings.included_pids.clear();
     mon_settings.excluded_pids.clear();
-    parse_pid_list(included_pid_list, mon_settings.included_pids);
-    parse_pid_list(excluded_pid_list, mon_settings.excluded_pids);
+    parse_int_list(included_pid_list, mon_settings.included_pids);
+    parse_int_list(excluded_pid_list, mon_settings.excluded_pids);
 
 #ifdef _DEBUG
     dprintf("\n\n\n\n");
@@ -390,35 +333,40 @@ volume_options_settings VolumeOptions::parse_ptree(boost::property_tree::ptree& 
     dprintf("\n\n\n\n");
 #endif
 
-    return parsed_settings;
+    return parsed_config;
 }
 
 /*
     wstring set to string list separated by ;
 */
-void parse_set(const std::set<std::wstring>& set_s, std::string& process_list)
+void parse_set(const std::set<std::wstring>& set_s, std::string& list)
 {
     for (auto s : set_s)
-    {
-        process_list += wstring_to_utf8(s) + ";";
-    }
+        list += wstring_to_utf8(s) + ";";
+}
+
+/*
+    string set to string list separated by ;
+*/
+void parse_set(const std::set<std::string>& set_s, std::string& list)
+{
+    for (auto s : set_s)
+        list += s + ";";
 }
 
 /*
     int set to string list separated by ;
 */
-void parse_set(const std::set<unsigned long>& set_l, std::string& pid_list)
+void parse_set(const std::set<unsigned long>& set_l, std::string& list)
 {
     for (auto l : set_l)
-    {
-        pid_list += std::to_string(l) + ";";
-    }
+        list += std::to_string(l) + ";";
 }
 
 /*
     wstring list separated by ; to wstring set
 */
-void parse_process_list(const std::wstring& process_list, std::set<std::wstring>& set_s)
+void parse_string_list(const std::wstring& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
     typedef boost::tokenizer<boost::char_separator<wchar_t>, std::wstring::const_iterator, std::wstring> wtokenizer;
@@ -429,7 +377,7 @@ void parse_process_list(const std::wstring& process_list, std::set<std::wstring>
         std::wstring pname(*it);
         boost::algorithm::trim(pname);
 
-        dwprintf(L"parse_process_list: insert: %s\n\n", pname.c_str());
+        dwprintf(L"parse_process_list: insert: %s\n", pname.c_str());
         set_s.insert(pname);
     }
 }
@@ -437,7 +385,7 @@ void parse_process_list(const std::wstring& process_list, std::set<std::wstring>
 /*
     string list separated by ; to wstring set
 */
-void parse_process_list(const std::string& process_list, std::set<std::wstring>& set_s)
+void parse_string_list(const std::string& process_list, std::set<std::wstring>& set_s)
 {
     // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
     boost::char_separator<char> sep(";");
@@ -447,15 +395,33 @@ void parse_process_list(const std::string& process_list, std::set<std::wstring>&
         std::string pname(*it);
         boost::algorithm::trim(pname);
 
-        dprintf("parse_process_list: insert: %s\n\n", pname.c_str());
+        dprintf("parse_string_list: insert: %s\n", pname.c_str());
         set_s.insert(utf8_to_wstring(pname));
+    }
+}
+
+/*
+    string list separated by ; to string set
+*/
+void parse_string_list(const std::string& process_list, std::set<std::string>& set_s)
+{
+    // NOTE_TODO: remove trimming if the user wants trailing spaces on names, or add "" on ini per value.
+    boost::char_separator<char> sep(";");
+    boost::tokenizer<boost::char_separator<char>> processtokens(process_list, sep);
+    for (auto it = processtokens.begin(); it != processtokens.end(); ++it)
+    {
+        std::string pname(*it);
+        boost::algorithm::trim(pname);
+
+        dprintf("parse_string_list: insert: %s\n", pname.c_str());
+        set_s.insert(pname);
     }
 }
 
 /*
     string list separed by ; to int set
 */
-void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l)
+void parse_int_list(const std::string& pid_list, std::set<unsigned long>& set_l)
 {
     boost::char_separator<char> sep(";");
     boost::tokenizer<boost::char_separator<char>> pidtokens(pid_list, sep);
@@ -467,7 +433,7 @@ void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l)
             std::string spid(*it);
             boost::algorithm::trim(spid);
 
-            dprintf("parse_pid_list: insert: %s\n\n", spid.c_str());
+            dprintf("parse_int_list: insert: %s\n", spid.c_str());
             set_l.insert(std::stoi(spid));
         }
         catch (std::invalid_argument) {} // std::stoi TODO: return something and report it to log
@@ -475,14 +441,211 @@ void parse_pid_list(const std::string& pid_list, std::set<unsigned long>& set_l)
     }
 }
 
-void VolumeOptions::set_settings(vo::volume_options_settings& settings)
+/*
+    if device is empty, it will set settings on all current audio monitors
+    TODO: rewrite and redesign this
+*/
+void VolumeOptions::set_settings(monitor_settings& settings, const std::string& device)
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    // monitor_settings will be parsed, applied and updated with actual settings applied.
-    m_paudio_monitor->SetSettings(settings.monitor_settings);
+    if (!device.empty())
+    {
+        // monitor_settings will be parsed, applied and updated with actual settings applied.
+        try { m_audio_monitors.at(device)->SetSettings(settings); }
+        catch (std::out_of_range) {
+            printf("VO_PLUGIN: set_settings()  Device %s not found.\n", device.c_str());
+        }
+    }
+    else  // apply settings to all monitors
+    {
+        for (auto m : m_audio_monitors)
+            m.second->SetSettings(m_config.vo_settings.monitor_settings);
+    }
+}
 
-    m_vo_settings = settings;
+/*
+    Sets settings for VolumeOptions
+    Applies settings for current and new audio monitors. (TODO: separate from this)
+*/
+void VolumeOptions::set_settings(volume_options_settings& settings)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    m_config.vo_settings = settings;
+
+    // TODO: individual settings per monitor
+    for (auto m : m_audio_monitors)
+        m.second->SetSettings(m_config.vo_settings.monitor_settings);
+}
+
+/*
+    Load class state to resume VolumeOptions
+*/
+void VolumeOptions::load_config(VolumeOptions::config_settings_t& config)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    m_config = config;
+
+    set_settings(m_config.vo_settings);
+
+    // Start AudioMonitors for configured devices.
+    for (auto d : m_config.selected_devices)
+    {
+#ifdef _WIN32
+        // default device id has to be empty when adding AudioMonitor
+        if (d == "default")
+        {
+            if (!add_device_monitor(L""))
+                m_config.selected_devices.erase("default");
+        }
+        else
+        {
+            if (!add_device_monitor(utf8_to_wstring(d)))
+                m_config.selected_devices.erase(d);
+        }
+#endif
+    }
+}
+
+#ifdef _WIN32
+// TODO: load device from name or device id. make two methods
+// TODO2: maybe move this to DeviceManager
+
+// Returns true y already added or added, empty to add current default device
+bool VolumeOptions::add_device_monitor(const std::wstring& wdevice_id)
+{
+    bool added = false;
+
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    // VolumeOptions internal container handles strings only
+    // In this case we store IDs as keys, empty key if we store default device.
+    const std::string device = wstring_to_utf8(wdevice_id);
+
+    // If we want to re add the default device check if its the same as current system default
+    if (wdevice_id.empty() && m_audio_monitors.count(""))
+    {
+        // Get current system default output endpoint (ID -> name)
+        std::pair<std::wstring, std::wstring> default_endpoint;
+        AudioMonitor::GetDefaultEndpoint(default_endpoint);
+
+        // Get current monitored default endpoint.
+        std::wstring using_defid = m_audio_monitors[""]->GetDeviceID();
+
+        // Compare, if current system default is different from monitored default
+        // TODO: maybe auto handle this in a different class with system callbacks.
+        //      if not, with this.. we have to re add the default every time it changes.
+        if (using_defid == default_endpoint.first)
+        {
+            dwprintf(L"VO_PLUGIN: Already monitoring this default device:\n - Name: %s\n\n", 
+                AudioMonitor::GetDeviceName(using_defid).c_str());
+            return true; // already monitoring the correct default
+        }
+        else
+        {
+            dwprintf(L"VO_PLUGIN: Replacing default device for new one:\n%s\nfor:\n%s\n\n",
+                AudioMonitor::GetDeviceName(using_defid).c_str(),
+                AudioMonitor::GetDeviceName(default_endpoint.first).c_str());
+
+            // delete old default to overwrite
+            m_audio_monitors.erase("");
+        }
+    }
+    else
+    {   // If we are already monitoring this device, return
+        if (m_audio_monitors.count(wstring_to_utf8(wdevice_id)))
+        {
+            dwprintf(L"VO_PLUGIN: Already monitoring this device:\n - Name: %s\n\n",
+                AudioMonitor::GetDeviceName(wdevice_id).c_str());
+            return true;
+        }
+    }
+
+    // Create the audio monitor and send settings to parse, it will return parsed settings.
+    std::shared_ptr<AudioMonitor> paudio_monitor = AudioMonitor::create(wdevice_id);
+    AudioMonitor::monitor_error_t error = paudio_monitor->GetLastError();
+
+    if (error == AudioMonitor::monitor_error_t::OK)
+    {
+        // TODO: individual settings per monitor
+        paudio_monitor->SetSettings(m_config.vo_settings.monitor_settings);
+
+        m_audio_monitors[device] = paudio_monitor;
+
+        std::wstring used_id = paudio_monitor->GetDeviceID();
+        wprintf(L"VO_PLUGIN: Added Device ID: %s\n - Name: %s\n\n", used_id.c_str(),
+            AudioMonitor::GetDeviceName(used_id).c_str());
+
+        added = true;
+    }
+    else
+    {
+        if (error == AudioMonitor::monitor_error_t::DEVICEID_IN_USE)
+            added = true;
+
+        if (error == AudioMonitor::monitor_error_t::DEVICE_NOT_FOUND)
+            wprintf(L"VO_PLUGIN: Error Device ID %s doesn't exists on the system\n",
+            wdevice_id.c_str());
+
+        if (error == AudioMonitor::monitor_error_t::IOTHREAD_START_ERROR)
+        {
+            assert(false);
+            wprintf(L"VO_PLUGIN: ERROR AudioMonitor main thread can't start\n");
+        }
+    }
+
+    if (added)
+    {
+        // Update internal config.
+        if (device.empty())
+            m_config.selected_devices.insert("default");
+        else
+            m_config.selected_devices.insert(device);
+    }
+
+    return added;
+}
+
+void VolumeOptions::remove_device_monitor(const std::wstring& wdevice_id)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+
+    std::string device = wstring_to_utf8(wdevice_id);
+
+    if (m_audio_monitors.count(device))
+    {
+        // TODO: individual settings per monitor
+        m_audio_monitors.erase(device);
+    }
+
+    // Update internal config.
+    if (device.empty())
+        m_config.selected_devices.erase("default");
+    else
+        m_config.selected_devices.erase(device);
+}
+
+// These return current monitored device IDs, even for default device.
+void VolumeOptions::get_monitored_devices(std::set<std::wstring>& current_deviceids)
+{
+    for (auto m : m_audio_monitors)
+        current_deviceids.insert(m.second->GetDeviceID());
+}
+#endif
+
+// These two return current selected devices for monitoring
+// in case of default returns 'default' string as key
+void VolumeOptions::get_selected_devices(std::set<std::wstring>& selected_devices)
+{
+    for (auto d : m_config.selected_devices)
+        selected_devices.insert(utf8_to_wstring(d));
+}
+void VolumeOptions::get_selected_devices(std::set<std::string>& selected_devices)
+{
+    for (auto d : m_config.selected_devices)
+        selected_devices.insert(d);
 }
 
 /*
@@ -493,7 +656,7 @@ float VolumeOptions::get_global_volume_reduction() const
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
     // gets the global vol reduction.
-    return m_paudio_monitor->GetVolumeReductionLevel();
+    return m_config.vo_settings.monitor_settings.ses_global_settings.vol_reduction;
 }
 
 /*
@@ -505,7 +668,8 @@ void VolumeOptions::restore_default_volume()
 
     printf("VO_PLUGIN: Forcing restore per app user default volume.\n");
 
-    m_paudio_monitor->Stop();
+    for (auto m : m_audio_monitors)
+        m.second->Stop();
 }
 
 /* 
@@ -539,11 +703,17 @@ void VolumeOptions::set_status(const status newstatus)
 
     // Reenable AudioMonitor only if someone non disabled is currently talking
     if (m_someone_enabled_is_talking && (newstatus == status::ENABLED) && (m_status == status::DISABLED))
-        m_paudio_monitor->Start();
+    {
+        for (auto m : m_audio_monitors)
+            m.second->Start();
+    }
 
     // Stop AudioMonitor only if someone non disabled is currently talking
     if (m_someone_enabled_is_talking && (newstatus == status::DISABLED) && (m_status == status::ENABLED))
-        m_paudio_monitor->Stop();
+    {
+        for (auto m : m_audio_monitors)
+            m.second->Stop();
+    }
 
     m_status = newstatus;
 }
@@ -552,7 +722,7 @@ vo::volume_options_settings VolumeOptions::get_current_settings() const
 {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
 
-    return m_vo_settings;
+    return m_config.vo_settings;
 }
 
 VolumeOptions::status VolumeOptions::get_status() const
@@ -782,8 +952,33 @@ void VolumeOptions::set_client_status(const uniqueClientID_t uniqueClientID, con
     apply_status();
 }
 
+void VolumeOptions::resume_monitors()
+{
+    for (auto m : m_audio_monitors)
+    {
+        if (m.second->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
+        {
+            dprintf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
+            m.second->Start();
+        }
+    }
+}
+
+void VolumeOptions::pause_monitors()
+{
+    for (auto m : m_audio_monitors)
+    {
+        if (m.second->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
+        {
+            dprintf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
+            m.second->Pause();
+            //m.second->Stop();
+        }
+    }
+}
+
 /*
-    Starts or stops audio monitor based on ts3 talking statuses.
+    Starts or stops audio monitors based on ts3 talking statuses.
 
     If none of the enabled clients/channels are talking turn off audio monitor.
 */
@@ -792,17 +987,11 @@ int VolumeOptions::apply_status()
     int r = 1;
 
     // if last client non disabled stoped talking, restore sounds. 
-    if ( m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty() ) 
+    if (m_clients_talking[ENABLED].empty() || m_channels_with_activity[ENABLED].empty()) 
     {
         if (m_status == status::ENABLED)
-        {
-            if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::PAUSED) // so we dont repeat it.
-            {
-                dprintf("VO_PLUGIN: Audio Monitor Paused, restoring Sessions to user default volume...\n");
-                r = m_paudio_monitor->Pause();
-                //m_paudio_monitor->Stop();
-            }
-        }
+            pause_monitors();
+
         m_someone_enabled_is_talking = false; // excluding disabled
     }
     else // someone non disabled is talking
@@ -811,13 +1000,8 @@ int VolumeOptions::apply_status()
         if (!m_someone_enabled_is_talking)
         {
             if (m_status == status::ENABLED)
-            {
-                if (m_paudio_monitor->GetStatus() != AudioMonitor::monitor_status_t::RUNNING) // so we dont repeat it.
-                {
-                    dprintf("VO_PLUGIN: Audio Monitor Active. starting/resuming audio sessions volume monitor...\n");
-                    r = m_paudio_monitor->Start();
-                }
-            }
+                resume_monitors();
+
             m_someone_enabled_is_talking = true;
         }
     }
@@ -854,7 +1038,7 @@ int VolumeOptions::process_talk(const bool talk_status, const uniqueServerID_t u
     
     // if this is mighty ourselfs talking, ignore after we stop talking to update.
     // TODO if user ignores himself well get incorrect count, fix it. revise this.
-    if ((ownclient) && (m_vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(uniqueClientID))
+    if ((ownclient) && (m_config.vo_settings.exclude_own_client) && !m_clients_talking[ENABLED].count(uniqueClientID))
     {
         dprintf("VO_PLUGIN: We are talking.. do nothing\n");
         return r;

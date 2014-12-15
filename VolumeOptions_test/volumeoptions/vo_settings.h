@@ -79,13 +79,14 @@ struct monitor_settings
     session_settings ses_global_settings;
 };
 
+// Plugin settings
 struct volume_options_settings
 {
     volume_options_settings()
         : exclude_own_client(true)
     {}
 
-    // TODO: remove monitor_settings and make vol_reduction shortcuts
+    // Default settings applied on new instances of audiomonitors.
     vo::monitor_settings monitor_settings;
 
     // add extra settings for your inteface.

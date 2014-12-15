@@ -131,6 +131,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\audio_manager.cpp" />
     <ClCompile Include="src\debug.cpp" />
     <ClCompile Include="src\vo_gui.cpp" />
     <ClCompile Include="src\logger.cpp">
@@ -147,6 +148,7 @@
   <ItemGroup>
     <ClInclude Include="resources\gui_resource.h" />
     <ClInclude Include="volumeoptions\async_queue.h" />
+    <ClInclude Include="volumeoptions\audio_manager.h" />
     <ClInclude Include="volumeoptions\boost\interprocess\ipc\message_queue_win.hpp" />
     <ClInclude Include="volumeoptions\debug.h" />
     <ClInclude Include="volumeoptions\logger.hpp">

@@ -165,8 +165,27 @@ namespace
             std::function<void(void)>(std::bind(std::forward<ft>(f), std::forward<pt>(args)...))));
 
         std::unique_lock<std::mutex> l(io_mutex);
-        while (!done) { cond.wait(l); };
+        while (!done) { cond.wait(l); }
         l.unlock();
+    }
+
+    // Does ASIO async call and waits it to complete with a time out (r returns false if timed out).
+    template <class rep, class period, typename ft, typename... pt>
+    void SYNC_CALL_TIMEOUT(const std::shared_ptr<boost::asio::io_service>& io, std::condition_variable& cond,
+        std::mutex& io_mutex, const std::chrono::duration<rep, period>& tdelay, bool* r, ft&& f, pt&&... args)
+    {
+        bool done = false;
+        io->dispatch(std::bind(&sync_queue, &done, &cond, &io_mutex,
+            std::function<void(void)>(std::bind(std::forward<ft>(f), std::forward<pt>(args)...))));
+
+        std::unique_lock<std::mutex> l(io_mutex);
+        while (!done) { 
+            if (cond.wait_for(l, tdelay) == std::cv_status::timeout) {
+                *r = false;
+                return;
+            }
+        }
+        *r = true;
     }
 
     // Does ASIO async call and waits for return.
@@ -180,7 +199,7 @@ namespace
             std::function<rt(void)>(std::bind(std::forward<ft>(f), std::forward<pt>(args)...))));
 
         std::unique_lock<std::mutex> l(io_mutex);
-        while (!done) { cond.wait(l); };
+        while (!done) { cond.wait(l); }
         l.unlock();
         return r;
     }
@@ -1226,14 +1245,21 @@ void AudioMonitor::StartIOInit()
     m_thread_monitor = std::thread(&AudioMonitor::poll, this);
 
     // When io_service is running, m_current_status flag will be set and finish init.
-    ASYNC_CALL(m_io, &AudioMonitor::FinishIOInit, this);
+    //SYNC_CALL(m_io, m_cond, m_io_mutex, &AudioMonitor::FinishIOInit, this);
+    bool complete;
+    SYNC_CALL_TIMEOUT(m_io, m_cond, m_io_mutex, std::chrono::seconds(5), &complete, &AudioMonitor::FinishIOInit, this);
+    if (!complete)
+    {
+        m_error_status = AudioMonitor::monitor_error_t::IOTHREAD_START_ERROR;
+        dprintf("\t--AudioMonitor init Timeout error, can't start IO thread\n--\n");
+    }
 }
 
 void AudioMonitor::FinishIOInit()
 {
     m_current_status = AudioMonitor::monitor_status_t::STOPPED;
 
-    dprintf("\t--AudioMonitor init complete--\n");
+    dprintf("\t--- AudioMonitor init complete ---\n\n");
 }
 
 AudioMonitor::~AudioMonitor()
@@ -1264,7 +1290,7 @@ AudioMonitor::~AudioMonitor()
     SAFE_RELEASE(m_pSessionEvents);
     SAFE_RELEASE(m_pSessionManager2);
 
-    dprintf("\n\t...AudioMonitor destroyed succesfuly.\n");
+    dprintf("\n\t--- AudioMonitor Destroyed ---\n\n");
 }
 
 /*
@@ -1371,6 +1397,59 @@ std::set<std::wstring> AudioMonitor::GetCurrentMonitoredEndpoints()
     return m_current_monitored_deviceids;
 }
 
+std::wstring AudioMonitor::GetDeviceName(const std::wstring& deviceid)
+{
+    HRESULT hr = S_OK;
+
+    IMMDevice* pDevice = NULL;
+    IMMDeviceEnumerator* pEnumerator = NULL;
+    IPropertyStore *pProps = NULL;
+    bool uninitialize_com = true;
+
+    std::wstring current_device_name;
+
+    // Call this from the threads doing work on WAPI interfaces. (in this case AudioMonitor thread)
+    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if ((hr == RPC_E_CHANGED_MODE) || (hr == S_FALSE))
+        uninitialize_com = false;
+
+    // Create the device enumerator.
+    CHECK_HR(hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+        (void**)&pEnumerator));
+    assert(pEnumerator != NULL);
+
+    // Get user specified device using its device id.
+    CHECK_HR(hr = pEnumerator->GetDevice(deviceid.c_str(), &pDevice));
+
+    hr = pDevice->OpenPropertyStore(STGM_READ, &pProps);
+    CHECK_HR(hr)
+
+    PROPVARIANT varName;
+    // Initialize container for property value.
+    PropVariantInit(&varName);
+
+    // Get the endpoint's friendly-name property.
+    hr = pProps->GetValue(PKEY_Device_FriendlyName, &varName);
+    CHECK_HR(hr)
+
+    current_device_name = varName.pwszVal;
+
+done:
+
+    if (FAILED(hr))
+        wprintf(L"Error getting device %s name\n", deviceid.c_str());
+
+    PropVariantClear(&varName);
+    SAFE_RELEASE(pProps)
+    SAFE_RELEASE(pDevice)
+    SAFE_RELEASE(pEnumerator)
+
+    if (uninitialize_com)
+        CoUninitialize();
+
+    return current_device_name;
+}
+
 /*
     Handy Method to enumerates all audio endpoints devices.
 
@@ -1385,7 +1464,8 @@ std::set<std::wstring> AudioMonitor::GetCurrentMonitoredEndpoints()
 
     On this method you have to manually check return on error.
 */
-HRESULT AudioMonitor::GetEndpointsInfo(std::map<std::wstring, std::wstring>& audio_endpoints, DWORD dwStateMask)
+HRESULT AudioMonitor::GetEndpointsInfo(std::unordered_map<std::wstring, std::wstring>& audio_endpoints,
+    DWORD dwStateMask)
 {
     HRESULT hr = S_OK;
     IMMDeviceEnumerator *pEnumerator = NULL;
@@ -1404,7 +1484,7 @@ HRESULT AudioMonitor::GetEndpointsInfo(std::map<std::wstring, std::wstring>& aud
     hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
         (void**)&pEnumerator);
     CHECK_HR(hr)
-    
+
     // DEVICE_STATE_ACTIVE by default
     hr = pEnumerator->EnumAudioEndpoints(eRender, dwStateMask, &pCollection);
     CHECK_HR(hr)
@@ -1440,7 +1520,7 @@ HRESULT AudioMonitor::GetEndpointsInfo(std::map<std::wstring, std::wstring>& aud
         hr = pProps->GetValue(PKEY_Device_FriendlyName, &varName);
         CHECK_HR(hr)
 
-        // Print endpoint friendly name and endpoint ID.
+        // Store endpoint friendly name and endpoint ID.
         audio_endpoints[pwszID] = varName.pwszVal;
 
         CoTaskMemFree(pwszID);
@@ -1455,10 +1535,70 @@ done:
         printf("Error getting audio endpoints list\n");
 
     CoTaskMemFree(pwszID);
-    SAFE_RELEASE(pEnumerator)
-    SAFE_RELEASE(pCollection)
-    SAFE_RELEASE(pEndpoint)
     SAFE_RELEASE(pProps)
+    SAFE_RELEASE(pEndpoint)
+    SAFE_RELEASE(pCollection)
+    SAFE_RELEASE(pEnumerator)
+
+    if (uninitialize_com)
+        CoUninitialize();
+
+    return hr;
+}
+
+HRESULT AudioMonitor::GetDefaultEndpoint(std::pair<std::wstring, std::wstring>& default_endpoint,
+    ERole role)
+{
+    HRESULT hr = S_OK;
+    IMMDeviceEnumerator *pEnumerator = NULL;
+    IMMDevice *pEndpoint = NULL;
+    IPropertyStore *pProps = NULL;
+    LPWSTR pwszID = NULL;
+    bool uninitialize_com = true;
+
+    default_endpoint.first.clear();
+    default_endpoint.second.clear();
+
+    std::wstring default_deviceid;
+    std::wstring default_devicename;
+
+    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if ((hr == RPC_E_CHANGED_MODE) || (hr == S_FALSE))
+        uninitialize_com = false;
+
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+        (void**)&pEnumerator);
+    CHECK_HR(hr)
+
+    // Find wich id is the default one (role is ignored)
+    CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, role, &pEndpoint));
+    assert(pEndpoint != NULL);
+
+    CHECK_HR(hr = pEndpoint->GetId(&pwszID));
+    default_deviceid = pwszID;
+
+    CHECK_HR(hr = pEndpoint->OpenPropertyStore(STGM_READ, &pProps));
+
+    PROPVARIANT varName;
+    // Initialize container for property value.
+    PropVariantInit(&varName);
+
+    // Get the endpoint's friendly-name property.
+    CHECK_HR(hr = pProps->GetValue(PKEY_Device_FriendlyName, &varName));
+    default_devicename = varName.pwszVal;
+
+    default_endpoint.first = default_deviceid;
+    default_endpoint.second = default_devicename;
+
+done:
+    if (FAILED(hr))
+        printf("Error getting default endpoint\n");
+
+    PropVariantClear(&varName);
+    CoTaskMemFree(pwszID);
+    SAFE_RELEASE(pProps)
+    SAFE_RELEASE(pEndpoint)
+    SAFE_RELEASE(pEnumerator)
 
     if (uninitialize_com)
         CoUninitialize();
@@ -1490,7 +1630,7 @@ HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
         {
             // todo heavy: check if other process or instance is using it and continue, dont return, then sync.
             // TODO UPDATE: working on IPC module.
-            std::cerr << "AudioMonitor::InitDeviceID() ERROR: Already monitoring this DeviceID endpoint" << std::endl;
+            dprintf("AudioMonitor::InitDeviceID() Already monitoring this DeviceID endpoint\n");
             m_error_status = monitor_error_t::DEVICEID_IN_USE;
         }
         else
@@ -1498,7 +1638,10 @@ HRESULT AudioMonitor::InitDeviceID(const std::wstring& _device_id)
             // static set so we dont monitor the same endpoints on multiple instances of AudioMonitor.
             m_current_monitored_deviceids.insert(device_id);
 
-            m_wsDeviceID = device_id;
+            // we need m_wsDeviceID to be constant after contruction, so.. c++ should offer this in constructor.
+            std::wstring& ref_const_id = const_cast<std::wstring&>(m_wsDeviceID);
+            ref_const_id = device_id;
+
             dprintf("AudioMonitor::InitDeviceID()  Using Device Status: OK.\n");
         }
     }
@@ -1540,7 +1683,7 @@ HRESULT AudioMonitor::GetSessionManager(std::wstring& device_id)
     // If user specified and endpoint ID to monitor, use it, if not use default.
     if (device_id.empty())
     {
-        // Get the default audio device.
+        // Get the default audio device. (NOTE: multiple default endpoints for each role are not yet used)
         CHECK_HR(hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice));
         assert(pDevice != NULL);
 
@@ -1567,10 +1710,10 @@ HRESULT AudioMonitor::GetSessionManager(std::wstring& device_id)
    // CHECK_HR(hr = DuckingOptOut(true, m_pSessionManager2));
 
 done:
-    if (pwszID)
-        CoTaskMemFree(pwszID);
-    SAFE_RELEASE(pEnumerator);
+
+    CoTaskMemFree(pwszID);
     SAFE_RELEASE(pDevice);
+    SAFE_RELEASE(pEnumerator);
 
     if (uninitialize_com)
         CoUninitialize();
@@ -2345,6 +2488,15 @@ auto AudioMonitor::GetStatus() -> monitor_status_t
     return m_current_status; // thread safe, std::atomic
 }
 
+auto AudioMonitor::GetLastError() -> monitor_error_t
+{
+    return m_error_status; // thread safe, std::atomic
+}
+
+std::wstring AudioMonitor::GetDeviceID() const
+{
+    return m_wsDeviceID; // constant after construction, thread safe.
+}
 
 
 #if 0 //TEST DELETE

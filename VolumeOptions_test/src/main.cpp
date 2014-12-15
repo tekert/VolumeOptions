@@ -20,8 +20,11 @@ int main2(int argc, char* argv[])
 
 	// Example interface for ts3 talk software,
     std::unique_ptr<VolumeOptions> vo = std::make_unique<VolumeOptions>();
-    vo->set_settings_from_file(".\\volumeoptions_plugin.ini"); // will load config file
+    vo->load_config_file(".\\volumeoptions_plugin.ini"); // will load config file
     //VolumeOptions* vo = new VolumeOptions(settings); // will load supplied settings directly
+
+    // monitor default output device on windows.
+    vo->add_device_monitor(L"");
 
     // Or use supplied windows dialog as example
 #ifdef _WIN32

@@ -194,15 +194,20 @@ public:
     ~AudioMonitor();
 
     // audio_endpoints: returns a DeviceID -> DeviceName map with current audio rendering devices
-    static HRESULT GetEndpointsInfo(std::map<std::wstring, std::wstring>& audio_endpoints,
+    static HRESULT GetEndpointsInfo(std::unordered_map<std::wstring, std::wstring>& audio_endpoints,
         DWORD dwStateMask = DEVICE_STATE_ACTIVE);
-    static std::set<std::wstring> GetCurrentMonitoredEndpoints();
+    // Pair of (first = DeviceID, second = Name)  of the current default audio endpoint.
+    static HRESULT GetDefaultEndpoint(std::pair<std::wstring, std::wstring>& default_endpoint,
+        ERole role = eConsole);
+    // Get current device name from device ID
+    static std::wstring GetDeviceName(const std::wstring& deviceid);
 
-    void ChangeDeviceID(const std::wstring& device_id);
+    static std::set<std::wstring> GetCurrentMonitoredEndpoints();
 
     float GetVolumeReductionLevel();
     void SetSettings(vo::monitor_settings& settings);
     vo::monitor_settings GetSettings();
+    std::wstring GetDeviceID() const; // returns current monitored DeviceID
 
     /* If Resume is used while Stopped it will use Start() */
     long Stop(); // Stops all events and deletes all saved sessions restoring default state.
@@ -215,6 +220,7 @@ public:
     enum class monitor_status_t { STOPPED, RUNNING, PAUSED, INITERROR };
     enum class monitor_error_t { OK, DEVICE_NOT_FOUND, DEVICEID_IN_USE, IOTHREAD_START_ERROR }; // TODO boost errors
     monitor_status_t GetStatus();
+    monitor_error_t GetLastError();
     
     std::shared_ptr<boost::asio::io_service> get_io() const;
 
@@ -242,12 +248,12 @@ private:
     void ApplyMonitorSettings();
     bool isSessionExcluded(const DWORD pid, std::wstring sid = L"");
 
-    void RemoveDeviceID(const std::wstring& device_id);
     HRESULT InitDeviceID(const std::wstring& device_id);
 
     IAudioSessionManager2* m_pSessionManager2;
     IAudioSessionNotification* m_pSessionEvents;
-    std::wstring m_wsDeviceID; // current audio endpoint ID beign monitored.
+
+    const std::wstring m_wsDeviceID; // current audio endpoint ID beign monitored.
     static std::set<std::wstring> m_current_monitored_deviceids;
     static std::mutex m_static_set_access;
 
@@ -263,9 +269,8 @@ private:
     t_pending_restores m_pending_restores;
 
     bool m_auto_change_volume_flag; // SELFNOTE: we can delete this and use m_current_status, either way..
-    //monitor_status_t m_current_status;
     std::atomic<monitor_status_t> m_current_status;
-    monitor_error_t m_error_status;
+    std::atomic<monitor_error_t> m_error_status;
 
     // Main sessions container type
     typedef std::unordered_multimap<std::wstring, std::shared_ptr<AudioSession>> t_saved_sessions;
